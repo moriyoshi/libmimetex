@@ -853,7 +853,7 @@ int main(int argc, char *argv[], char *envp[])
                     /* so ignore longer -xxx switch */
                     nbadargs++;
                     argnum--;
-                } else             /* process single-char -x switch */
+                } else {             /* process single-char -x switch */
                     switch (flag) {       /* see what user wants to tell us */
                         /* --- ignore uninterpreted flag --- */
                     default:
@@ -898,10 +898,14 @@ int main(int argc, char *argv[], char *envp[])
                         isqforce = 1;
                         argnum--;
                         break;
+                    case 'c':
+                        isemitcontenttype = 0;
+                        break;
                     case 's':
                         if (argnum < argc) size = atoi(argv[argnum]);
                         break;
                     } /* --- end-of-switch(flag) --- */
+                }
             } /* --- end-of-if(*argv[argnum]=='-') --- */
             else
             /* expression if arg not a -flag */
@@ -1286,13 +1290,6 @@ int main(int argc, char *argv[], char *envp[])
                 strcat(cachefile, ".gif");
                 /* signal GIF_Create() to cache */
                 gif_outfile = cachefile;
-                /* --- emit mime content-type line --- */
-                if (0 && isemitcontenttype) { /* now done in emitcache() */
-                    fprintf(stdout, "Cache-Control: max-age=%d\n", maxage);
-                    if (abs(valign) < 999)         /* have vertical align */
-                        fprintf(stdout, "Vertical-Align: %d\n", valign);
-                    fprintf(stdout, "Content-type: image/gif\n\n");
-                }
                 /* --- emit cached image if it already exists --- */
                 if (emitcache(cachefile, maxage, valign, 0) > 0) /* cached image emitted */
                     /* so nothing else to do */
