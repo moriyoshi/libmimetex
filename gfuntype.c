@@ -404,7 +404,7 @@ Allocations and Declarations
 -------------------------------------------------------------------------- */
 static	char keyword[99]="beginning of char "; /*signals start of next char*/
 char	*readaline(), *line;	/* read next line from fp */
-char	*strstr(), *strchr(), *delim; /* search line for substring, char */
+char	*delim; /* search line for substring, char */
 char	token[99];		/* token extracted from line */
 int	charnum = (-1);		/* character number returned to caller */
 /* --------------------------------------------------------------------------
@@ -707,8 +707,8 @@ char	*readaline ( FILE *fp )
 Allocations and Declarations
 -------------------------------------------------------------------------- */
 static	char buffer[2048];	/* static buffer returned to caller */
-char	*fgets(), *bufptr=buffer; /* read line from fp */
-char	*strchr(), *delim;	/* remove terminating newline */
+char	*bufptr=buffer; /* read line from fp */
+char	*delim;	/* remove terminating newline */
 /* --------------------------------------------------------------------------
 Read line and strip trailing newline
 -------------------------------------------------------------------------- */
