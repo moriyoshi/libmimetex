@@ -2064,3 +2064,63 @@ int hex_bitmap(raster *rp, FILE *fp, int col1, int isstr)
     return (1);
 } /* --- end-of-function hex_bitmap() --- */
 
+/* ==========================================================================
+ * Function:    rasteditfilename ( filename )
+ * Purpose:    edits filename to remove security problems,
+ *        e.g., removes all ../'s and ..\'s.
+ * --------------------------------------------------------------------------
+ * Arguments:    filename (I)    char * to null-terminated string containing
+ *                name of file to be edited
+ * --------------------------------------------------------------------------
+ * Returns:    ( char * )    pointer to edited filename,
+ *                or empty string "\000" if any problem
+ * --------------------------------------------------------------------------
+ * Notes:     o
+ * ======================================================================= */
+/* --- entry point --- */
+char    *rasteditfilename ( char *filename )
+{
+    /* ------------------------------------------------------------
+    Allocations and Declarations
+    ------------------------------------------------------------ */
+    static    char editname[2050];        /*edited filename returned to caller*/
+    int    isprefix = (*pathprefix=='\000'?0:1); /* true if paths have prefix */
+    /* ------------------------------------------------------------
+    edit filename
+    ------------------------------------------------------------ */
+    /* --- first check filename arg --- */
+    *editname = '\000';            /* init edited name as empty string*/
+    if (filename == (char *)NULL)
+        /* no filename arg */
+        goto end_of_job;
+    if (*filename == '\000')
+        /* filename is an empty string */
+        goto end_of_job;
+    /* --- init edited filename --- */
+    strcpy(editname, filename);        /* init edited name as input name */
+    compress(editname, ' ');            /* remove embedded blanks */
+    /* --- remove leading or embedded ....'s --- */
+    while (strreplace(editname,"....",NULL,0) > 0);  /* squeeze out ....'s */
+    /* --- remove leading / and \ and dots (and blanks) --- */
+    if (*editname != '\000') {
+        /* still have chars in filename */
+        while (isthischar(*editname, " ./\\"))
+            /* absolute paths invalid so flush leading / or \ (or ' ')*/
+            strcpy(editname, editname + 1);
+    }
+    if (*editname == '\000')
+        /* no chars left in filename */
+        goto end_of_job;
+    /* --- remove leading or embedded ../'s and ..\'s --- */
+    while (strreplace(editname, "../", NULL, 0) > 0);  /* squeeze out ../'s */
+    while (strreplace(editname, "..\\", NULL, 0) > 0); /* and ..\'s */
+    while (strreplace(editname, "../", NULL, 0) > 0);  /* and ../'s again */
+    /* --- prepend path prefix (if compiled with -DPATHPREFIX) --- */
+    if (isprefix && *editname!='\000')    /* filename is preceded by prefix */
+        strchange(0, editname, pathprefix);    /* so prepend prefix */
+end_of_job:
+    /* back with edited filename */
+    return ( editname );
+}
+/* --- end-of-function rasteditfilename() --- */
+
