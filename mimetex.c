@@ -2100,4 +2100,3 @@ mathchardef_table symtables[16] = {
 };
 
 int tzdelta = 0;
-char pathprefix[256] = { '\000' }; /*prefix for \input,\counter paths*/

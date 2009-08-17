@@ -355,8 +355,6 @@ extern int aaalgorithm;  /* for lp, 1=aalowpass, 2 =aapnm */
  * ---------------------------------------------- */
 extern int tzdelta;
 
-extern char pathprefix[256];
-
 extern mathchardef_table symtables[16];
 
 int delete_raster();
