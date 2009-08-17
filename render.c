@@ -1646,8 +1646,6 @@ subraster *rasterize(char *expression, int size)
     *subexpr = chartoken;
     /*get mathchardef struct for symbol*/
     mathchardef *symdef;
-    /*get symtable[] index for ligature*/
-    int ligdef;
     int natoms = 0;         /* #atoms/tokens processed so far */
     /* display debugging output */
     subraster *sp = NULL, *prevsp = NULL, /* raster for current, prev char */
@@ -1722,9 +1720,9 @@ subraster *rasterize(char *expression, int size)
         /* current font family */
         family = fontinfo[fontnum].family;
         if (family == CYR10)       /* may have cyrillic \= ligature */
-            if ((ligdef = get_ligature(expression, family)) /*check for any ligature*/
+            if ((symdef = get_ligature(expression, family)) /*check for any ligature*/
                     >=    0)                 /* got some ligature */
-                if (memcmp(symtable[ligdef].symbol, "\\=", 2) == 0) /* starts with \= */
+                if (memcmp(symdef->symbol, "\\=", 2) == 0) /* starts with \= */
                     /* signal \= ligature */
                     isligature = 1;
         /* --- get next character/token or subexpression --- */
@@ -2157,14 +2155,6 @@ end_of_job:
 /* --- entry point --- */
 subraster *rastlimits(char **expression, int size, subraster *basesp)
 {
-    /* ------------------------------------------------------------
-    Allocations and Declarations
-    ------------------------------------------------------------ */
-    subraster *rastscripts();
-    subraster *rastdispmath();
-    subraster *rastcat();
-    subraster *rasterize();
-
     subraster *scriptsp = basesp,     /* and this will become the result */
               *dummybase = basesp; /* for {}_i construct a dummy base */
     /* set 1 for displaystyle, else 0 */
@@ -2177,7 +2167,7 @@ subraster *rastlimits(char **expression, int size, subraster *basesp)
     /* strlen(limtoken) */
     int toklen = 0;
     /* mathchardef struct for limtoken */
-    mathchardef *tokdef, *get_symdef();
+    mathchardef *tokdef;
     /*base sym class*/
     int class = (leftsymdef == NULL ? NOVALUE : leftsymdef->class);
     /* ------------------------------------------------------------

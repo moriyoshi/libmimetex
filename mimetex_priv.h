@@ -173,10 +173,11 @@ subraster *new_subraster();
 subraster *rastack();
 subraster *rastcat();
 subraster *rastcompose();
-subraster *rasterize();
+subraster *rastdispmath();
 subraster *rasterize();
 subraster *rastflags();
 subraster *rastlimits();
+subraster *rastscripts();
 subraster *subrastcpy();
 subraster *uparrow_subraster();
 
@@ -188,8 +189,9 @@ char *texsubexpr();
 char *texscripts();
 int isbrace();
 
+
 /* chardef.c */
-int get_ligature();
+mathchardef *get_ligature();
 mathchardef *get_symdef();
 
 /* render.c */
