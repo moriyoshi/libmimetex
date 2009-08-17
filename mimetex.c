@@ -691,10 +691,6 @@ static mathchardef handlers[] = {
     { "\\input", NOVALUE, NOVALUE, NOVALUE, (HANDLER)(rastinput) },
     { "\\today", NOVALUE, NOVALUE, NOVALUE, (HANDLER)(rasttoday) },
     { "\\calendar", NOVALUE, NOVALUE, NOVALUE, (HANDLER)(rastcalendar) },
-    /* XXX */
-    /* { "\\environment", NOVALUE, NOVALUE, NOVALUE, (HANDLER)(rastenviron) }, */
-    /* XXX */
-    /* { "\\message", NOVALUE, NOVALUE, NOVALUE, (HANDLER)(rastmessage) }, */
     { "\\counter", NOVALUE, NOVALUE, NOVALUE, (HANDLER)(rastcounter) },
     /* --- spaces --- */
     { "\\/",    1,  NOVALUE, NOVALUE, (HANDLER)(rastspace) },

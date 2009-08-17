@@ -431,7 +431,11 @@ static subraster *rastmessage(char **expression, int size, subraster *basesp,
     return (messagesp);
 } /* --- end-of-function rastmessage() --- */
 
-
+static mathchardef extra_handlers[] = {
+    { "\\environment", NOVALUE, NOVALUE, NOVALUE, (HANDLER)(rastenviron) },
+    { "\\message", NOVALUE, NOVALUE, NOVALUE, (HANDLER)(rastmessage) },
+    { NULL,     -999,   -999,   -999,       NULL }
+};
 
 /* ==========================================================================
  * Function:    main() driver for mimetex.c
@@ -683,10 +687,17 @@ int main(int argc, char *argv[], char *envp[])
     /* ------------------------------------------------------------
     initialization
     ------------------------------------------------------------ */
-    /* --- run optional system command string --- */
-#ifdef SYSTEM
-    system(SYSTEM);
-#endif
+    /* install extra handlers */
+    {
+        int i;
+        for (i = 0; i < sizeof(symtables) / sizeof(*symtables); i++) {
+            if (!symtables[i].table) {
+                symtables[i].family = NOVALUE;
+                symtables[i].table = extra_handlers;
+                break;
+            }
+        }
+    }
     /* --- set global variables --- */
     strcpy(pathprefix, PATHPREFIX);
     /* for command-line mode output */
