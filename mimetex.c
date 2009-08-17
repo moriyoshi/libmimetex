@@ -643,23 +643,6 @@ fontfamily aafonttable[] = {
       {    -999, {    NULL,     NULL,     NULL,     NULL,     NULL,     NULL,     NULL,     NULL}}
 }; /* --- end-of-aafonttable[] --- */
 
-/* --- for super-sampling anti-aliasing --- */
-fontfamily ssfonttable[] = {
-/* -----------------------------------------------------------------------------------------
-    family     size=0,        1,        2,        3,        4,        5,        6,        7
-   ----------------------------------------------------------------------------------------- */
-      {  CMR10, {  cmr250,  cmr1200,  cmr1200,  cmr1200,  cmr1200,  cmr1200,  cmr1200,  cmr1200}},
-      { CMMI10, { cmmi250,  cmmi100,  cmmi118,  cmmi131,  cmmi160,  cmmi180,  cmmi210,  cmmi250}},
-      {CMMIB10, {cmmib250, cmmib100, cmmib118, cmmib131, cmmib160, cmmib180, cmmib210, cmmib250}},
-      { CMSY10, { cmsy250,  cmsy100,  cmsy118,  cmsy131,  cmsy160,  cmsy180,  cmsy210,  cmsy250}},
-      { CMEX10, { cmex250,  cmex100,  cmex118,  cmex131,  cmex160,  cmex180,  cmex210,  cmex250}},
-      { RSFS10, { rsfs250,  rsfs100,  rsfs118,  rsfs131,  rsfs160,  rsfs180,  rsfs210,  rsfs250}},
-      { BBOLD10, {bbold250, bbold100, bbold118, bbold131, bbold160, bbold180, bbold210, bbold250}},
-      {STMARY10, {stmary250, stmary100, stmary118, stmary131, stmary160, stmary180, stmary210, stmary250}},
-      {   CYR10, { wncyr83, wncyr100, wncyr118, wncyr131, wncyr160, wncyr180, wncyr210, wncyr250}},
-      {   -999, {    NULL,     NULL,     NULL,     NULL,     NULL,     NULL,     NULL,     NULL}}
-};
-
 fontfamily *fonttable = aafonttable;
 
 /*supersampling shrinkfactor by size*/ 
@@ -796,8 +779,6 @@ mathchardef symtable[] = {
     { "\\HUGE",      ISFONTSIZE,       7, NOVALUE, (HANDLER)(rastflags) },
     { "\\fontsize",  ISFONTSIZE, NOVALUE, NOVALUE, (HANDLER)(rastflags) },
     { "\\fs",        ISFONTSIZE, NOVALUE, NOVALUE, (HANDLER)(rastflags) },
-    { "\\shrinkfactor", ISSHRINK, NOVALUE, NOVALUE, (HANDLER)(rastflags) },
-    { "\\sf",        ISSHRINK,   NOVALUE, NOVALUE, (HANDLER)(rastflags) },
     { "\\light",     ISWEIGHT,         0, NOVALUE, (HANDLER)(rastflags) },
     { "\\regular",   ISWEIGHT,         1, NOVALUE, (HANDLER)(rastflags) },
     { "\\semibold",  ISWEIGHT,         2, NOVALUE, (HANDLER)(rastflags) },
@@ -807,8 +788,6 @@ mathchardef symtable[] = {
     { "\\centerwt",  ISCENTERWT, NOVALUE, NOVALUE, (HANDLER)(rastflags) },
     { "\\adjacentwt", ISADJACENTWT, NOVALUE, NOVALUE, (HANDLER)(rastflags) },
     { "\\cornerwt",  ISCORNERWT, NOVALUE, NOVALUE, (HANDLER)(rastflags) },
-    { "\\ssampling",  ISSUPER,         1, NOVALUE, (HANDLER)(rastflags) },
-    { "\\lowpass",    ISSUPER,         0, NOVALUE, (HANDLER)(rastflags) },
     { "\\aaalg", ISAAALGORITHM,   NOVALUE, NOVALUE, (HANDLER)(rastflags) },
     { "\\pnmparams", PNMPARAMS,   NOVALUE, NOVALUE, (HANDLER)(rastflags) },
     { "\\gammacorrection", ISGAMMA, NOVALUE, NOVALUE, (HANDLER)(rastflags) },

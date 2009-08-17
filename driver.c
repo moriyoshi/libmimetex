@@ -552,7 +552,7 @@ static int GetPixel(int x, int y)
     int ipixel = y * bitmap_raster->width + x;
     /* value of pixel */
     int pixval = 0;
-    if (!aaalgorithm)               /* use bitmap if not anti-aliased */
+    if (!colormap_raster)               /* use bitmap if not anti-aliased */
         /*pixel = 0 or 1*/
         pixval = (int)getlongbit(bitmap_raster->pixmap, ipixel);
     else
@@ -691,7 +691,6 @@ int main(int argc, char *argv[], char *envp[])
     strcpy(pathprefix, PATHPREFIX);
     /* for command-line mode output */
     msgfp = stdout;
-    /* set supersampling flag */
     /* true to emit mime content-type */
     isemitcontenttype = 1;
     /* reset content-type:, etc. cache */
@@ -1367,13 +1366,9 @@ int main(int argc, char *argv[], char *envp[])
         if (sp ==  NULL) goto end_of_job;
     } /* --- end-of-if((sp=rasterize())==NULL) --- */
     /* ---no border requested, but this adjusts width to multiple of 8 bits--- */
-    if (aaalgorithm == 5)             /* no border needed for gifs */
-        /* so just extract pixel map */
-        bp = sp->image;
-    else
     /* for mime xbitmaps must have... */
-        /* image width multiple of 8 bits */
-        bp = border_raster(sp->image, 0, 0, 0, 1);
+    /* image width multiple of 8 bits */
+    bp = border_raster(sp->image, 0, 0, 0, 1);
     /* global copy for gif,png output */
     sp->image = bitmap_raster = bp;
     if (sp != NULL && bp != NULL) {      /* have raster */
@@ -1392,22 +1387,16 @@ int main(int argc, char *argv[], char *envp[])
          * ------------------------------------------------------------ */
         /*#bytes needed in byte,colormap*/
         int   nbytes = (bp->width) * (bp->height);
-        if (aaalgorithm == 5) {
-            /* anti-aliasing by supersampling */
-            /* bytemap in raster */
-            bytemap_raster = (intbyte *)(bitmap_raster->pixmap);
-        } else {
-            /* anti-aliasing wanted */
-            /* malloc bytemap and colormap */
-            if ((bytemap_raster = (intbyte *)malloc(nbytes)) == NULL) {
-                fprintf(msgfp, "allocation failure\n");
-                goto end_of_job;
-            }
-            /* have bytemap, so... */
-            if ((colormap_raster = (intbyte *)malloc(nbytes)) == NULL) {
-                fprintf(msgfp, "allocation failure\n");
-                goto end_of_job;
-            }
+        /* anti-aliasing wanted */
+        /* malloc bytemap and colormap */
+        if ((bytemap_raster = (intbyte *)malloc(nbytes)) == NULL) {
+            fprintf(msgfp, "allocation failure\n");
+            goto end_of_job;
+        }
+        /* have bytemap, so... */
+        if ((colormap_raster = (intbyte *)malloc(nbytes)) == NULL) {
+            fprintf(msgfp, "allocation failure\n");
+            goto end_of_job;
         }
         /* ---
          * now generate anti-aliased bytemap and colormap from bitmap
@@ -1419,6 +1408,7 @@ int main(int argc, char *argv[], char *envp[])
         switch (aaalgorithm) {          /* choose antialiasing algorithm */
         default:
             /* unrecognized algorithm */
+            aaalgorithm = 0;
             break;
         case 1:              /* 1 for aalowpass() */
             /*my own lowpass filter*/
@@ -1441,8 +1431,6 @@ int main(int argc, char *argv[], char *envp[])
             if (aalowpasslookup(bp, bytemap_raster, grayscale) == 0) {
                 aaalgorithm = 0;
             }
-            break;
-        case 5: /* supersampling */
             break;
         } /* --- end-of-switch(aaalgorithm) --- */
         if (aaalgorithm) {              /* we have bytemap_raster */
@@ -1508,10 +1496,8 @@ int main(int argc, char *argv[], char *envp[])
             /* ---
              * display ascii image of rasterize()'s rasterized bitmap
              * ------------------------------------------------------------ */
-            if (aaalgorithm != 5) {               /* no bitmap for supersampling */
-                fprintf(msgfp, "\nAscii dump of bitmap image...\n");
-                type_raster(bp, msgfp);
-            }      /* emit ascii image of raster */
+            fprintf(msgfp, "\nAscii dump of bitmap image...\n");
+            type_raster(bp, msgfp);
             /* ---
              * display anti-aliasing results applied to rasterized bitmap
              * ------------------------------------------------------------ */
@@ -1683,7 +1669,7 @@ int main(int argc, char *argv[], char *envp[])
     } /* --- end-of-if(isquery) --- */
     /* --- exit --- */
 end_of_job:
-    if (aaalgorithm != 5 && bytemap_raster != NULL) free(bytemap_raster);
+    if (bytemap_raster != NULL) free(bytemap_raster);
     /*and colormap_raster*/
     if (colormap_raster != NULL)free(colormap_raster);
     /* free malloced buffer */

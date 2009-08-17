@@ -63,7 +63,7 @@ raster  *new_raster(int width, int height, int pixsz)
     /* in case pixmap malloc() fails */
     int delete_raster();
     /* padding bytes */
-    int npadding = (0 && aaalgorithm == 5 ? 8 + 256 : 0);
+    int npadding = 0;
     /* ------------------------------------------------------------
     allocate and initialize raster struct and embedded bitmap
     ------------------------------------------------------------ */

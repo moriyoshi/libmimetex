@@ -376,27 +376,15 @@ chardef *get_chardef(mathchardef *symdef, int size)
     family = symdef->family;
     /* char# of symbol within font */
     charnum = symdef->charnum;
-    /* --- check for supersampling --- */
-    if (aaalgorithm == 5) { /* check for supersampling fonts */
-        if (fonts != ssfonttable) {     /* uh oh--probably internal error */
-            /* force it */
-            fonts = ssfonttable;
-        }
-    }
     /* --- check requested size, and set size increment --- */
-    if (0 && aaalgorithm == 5) {/* set size index for supersampling */
-        /* index 1 past largest size */
-        size = LARGESTSIZE + 1;
-    } else {                  /* low pass indexes 0...LARGESTSIZE */
-        /* size was definitely too small */
-        if (size < 0) size = 0;
-        /* or definitely too large */
-        if (size > LARGESTSIZE) size = LARGESTSIZE;
-        /*use next larger if size too small*/
-        if (size < normalsize) sizeinc = (+1);
-        /*or next smaller if size too large*/
-        if (size > normalsize) sizeinc = (-1);
-    }
+    /* size was definitely too small */
+    if (size < 0) size = 0;
+    /* or definitely too large */
+    if (size > LARGESTSIZE) size = LARGESTSIZE;
+    /*use next larger if size too small*/
+    if (size < normalsize) sizeinc = (+1);
+    /*or next smaller if size too large*/
+    if (size > normalsize) sizeinc = (-1);
     /* --- check for really big symbol (1st char of symbol name uppercase) --- */
     for (symptr = symdef->symbol; *symptr != '\000'; symptr++) {
         /*skip leading \'s*/
@@ -548,9 +536,6 @@ subraster *get_charsubraster(mathchardef *symdef, int size)
     raster  *bitmaprp = NULL, *gftobitmap();
     /* in case gftobitmap() fails */
     int delete_subraster();
-    int aasupsamp(),            /*antialias char with supersampling*/
-    /* aasupersamp() parameters */
-    grayscale = 256;
     /* ------------------------------------------------------------
     look up chardef for symdef at size, and embed data (gfdata) in subraster
     ------------------------------------------------------------ */
@@ -571,10 +556,10 @@ subraster *get_charsubraster(mathchardef *symdef, int size)
             if (format == 1) {         /* already a bitmap */
                 /* static char raster */
                 sp->type = CHARASTER;
+                /* store ptr to its bitmap */
                 sp->image = image;
-            }       /* store ptr to its bitmap */
-            else
-            /* need to convert .gf-to-bitmap */
+            } else {
+                /* need to convert .gf-to-bitmap */
                 if ((bitmaprp = gftobitmap(image))    /* convert */
                         != (raster *)NULL) {         /* successful */
                     /* allocated raster will be freed */
@@ -588,27 +573,7 @@ subraster *get_charsubraster(mathchardef *symdef, int size)
                     sp = (subraster *)NULL;
                     goto end_of_job;
                 }        /* quit */
-            if (aaalgorithm == 5) {     /* antialias character right here */
-                /* antialiased char raster */
-                raster *aa = NULL;
-                int status = aasupsamp(sp->image, &aa, shrinkfactor, grayscale);
-                if (status) {            /* supersampled successfully */
-                    /* baseline before supersampling */
-                    int baseline = sp->baseline;
-                    /* #rows before supersampling */
-                    int height = gfdata->image.height;
-                    /* replace chardef with ss image */
-                    sp->image = aa;
-                    if (baseline >= height - 1)  /* baseline at bottom of char */
-                        /* so keep it at bottom */
-                        sp->baseline = aa->height - 1;
-                    else
-                    /* char has descenders */
-                        /* rescale baseline */
-                        sp->baseline /= shrinkfactor;
-                    sp->type = IMAGERASTER;
-                }   /* character is an image raster */
-            } /* --- end-of-if(issupersampling) --- */
+            }
         } /* --- end-of-if(sp!=NULL) --- */
 end_of_job:
     if (msgfp != NULL && msglevel >= 999) {

@@ -306,14 +306,12 @@ typedef struct fontfamily_struct /* typedef for fontfamily */
 #define ISFONTSIZE  (3)     /* set fontsize */
 #define ISWEIGHT    (4)     /* set aa params */
 #define ISOPAQUE    (5)     /* set background opaque */
-#define ISSUPER     (6)     /* set supersampling/lowpass */
 #define ISAAALGORITHM   (61)        /* set anti-aliasing algorithm */
 #define ISCENTERWT  (62)        /* set anti-aliasing center weight */
 #define ISADJACENTWT    (63)        /* set anti-aliasing adjacent weight*/
 #define ISCORNERWT  (64)        /* set anti-aliasing adjacent weight*/
 #define PNMPARAMS   (65)        /* set fgalias,fgonly,bgalias,bgonly*/
 #define ISGAMMA     (66)        /* set gamma correction */
-#define ISSHRINK    (7)     /* set supersampling shrinkfactor */
 #define UNITLENGTH  (8)     /* set unitlength */
 #define ISCOLOR     (9)     /* set color */
 #define ISREVERSE   (10)        /* set reverse video colors */
@@ -349,7 +347,7 @@ extern int patternnumcount0[99], patternnumcount1[99]; /*aalookup() counts*/
 extern int istransparent;/* true sets background transparent*/
 extern int isplusblank;  /*interpret +'s in query as blanks?*/
 extern char exprprefix[256];  /* prefix prepended to expressions */
-extern int aaalgorithm;  /* for lp, 1=aalowpass, 2 =aapnm, 5 = supersampling */
+extern int aaalgorithm;  /* for lp, 1=aalowpass, 2 =aapnm */
 
 /* ---
  * mathchardefs for symbols recognized by mimetex

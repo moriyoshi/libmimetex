@@ -3274,16 +3274,9 @@ subraster *rastflags(char **expression, int size, subraster *basesp,
             /* use reverse video gamma instead */
             gammacorrection = REVERSEGAMMA;
         break;
-    case ISSUPER:             /* set supersampling/lowpass flag */
-        if (value)
-            aaalgorithm = 5;
-        /* set fonts */
-        fonttable = (value ? ssfonttable : aafonttable);
-        break;
     case ISFONTSIZE:          /* set fontsize */
     case ISDISPLAYSIZE:           /* set displaysize */
     case ISCONTENTTYPE:           /*enable/disable content-type lines*/
-    case ISSHRINK:            /* set shrinkfactor */
     case ISAAALGORITHM:           /* set anti-aliasing algorithm */
     case ISWEIGHT:            /* set font weight */
     case ISCENTERWT:          /* set lowpass center pixel weight */
@@ -3345,7 +3338,7 @@ subraster *rastflags(char **expression, int size, subraster *basesp,
             break;
         case ISFONTSIZE:          /* set fontsize */
             if (argvalue != NOVALUE) {   /* got a value */
-                int largestsize = (aaalgorithm == 5 ? 16 : LARGESTSIZE);
+                int largestsize = LARGESTSIZE;
                 fontsize = (isdelta ? fontsize + argvalue : argvalue);
                 fontsize = max2(0, min2(fontsize, largestsize));
                 shrinkfactor = shrinkfactors[fontsize];
@@ -3389,12 +3382,6 @@ subraster *rastflags(char **expression, int size, subraster *basesp,
             smashmargin = max2((isdelta ? -5 : 0), min2(smashmargin, 32));
             /* signal explicit \smash directive*/
             isexplicitsmash = 1;
-            break;
-        case ISSHRINK:            /* set shrinkfactor */
-            if (argvalue != NOVALUE)     /* got a value */
-                shrinkfactor = (isdelta ? shrinkfactor + argvalue : argvalue);
-            /* sanity check */
-            shrinkfactor = max2(1, min2(shrinkfactor, 27));
             break;
         case ISAAALGORITHM:       /* set anti-aliasing algorithm */
             if (argvalue != NOVALUE) {   /* got a value */
