@@ -24,7 +24,6 @@
 #ifndef MIMETEX_UTILS_H
 #define MIMETEX_UTILS_H
 
-char *mimetex_util_md5str();
 int rastreadfile();
 
 #endif /* MIMETEX_UTILS_H */

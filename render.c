@@ -53,21 +53,6 @@
 /* --- entry point --- */
 subraster *accent_subraster(int accent, int width, int height, int pixsz)
 {
-    /* ------------------------------------------------------------
-    Allocations and Declarations
-    ------------------------------------------------------------ */
-    subraster *get_delim();
-    int delete_raster();
-    int delete_subraster();
-    int line_raster();
-    int rule_raster();
-    raster *new_raster();
-    subraster *new_subraster();
-    raster *rastrot();
-    raster *rastcpy();
-    subraster *arrow_subraster();
-    subraster *rastack();
-
     /* --- general info --- */
     raster *rp = NULL;
     /* subraster returning accent */
@@ -295,13 +280,7 @@ subraster *accent_subraster(int accent, int width, int height, int pixsz)
 subraster *arrow_subraster(int width, int height, int pixsz,
                            int drctn, int isBig)
 {
-    /* ------------------------------------------------------------
-    Allocations and Declarations
-    ------------------------------------------------------------ */
-    /* allocate arrow subraster */
-    subraster *new_subraster(), *arrowsp = NULL;
-    /* draw arrow line */
-    int rule_raster();
+    subraster *arrowsp = NULL;
     /* index, midrow is arrowhead apex */
     int irow, midrow = height / 2;
     /* arrowhead thickness and index */
@@ -1216,19 +1195,14 @@ int bezier_raster(raster *rp, double r0, double c0,
 raster  *border_raster(raster *rp, int ntop, int nbot,
                        int isline, int isfree)
 {
-    /* ------------------------------------------------------------
-    Allocations and Declarations
-    ------------------------------------------------------------ */
     /*raster back to caller*/
-    raster  *new_raster(), *bp = (raster *)NULL;
+    raster  *bp = (raster *)NULL;
     /* overlay rp in new bordered raster */
     int rastput();
     int width  = (rp == NULL ? 0 : rp->width),  /* width of raster */
         height = (rp == NULL ? 0 : rp->height), /* height of raster */
         istopneg = 0, isbotneg = 0, /* true if ntop or nbot negative */
         leftmargin = 0; /* adjust width to whole number of bytes */
-    /* free input rp if isfree is true */
-    int delete_raster();
     /* ------------------------------------------------------------
     Initialization
     ------------------------------------------------------------ */
@@ -1347,9 +1321,8 @@ raster  *backspace_raster(raster *rp, int nback, int *pback, int minspace,
     Allocations and Declarations
     ------------------------------------------------------------ */
     /* raster returned to caller */
-    raster  *new_raster(), *bp = (raster *)NULL;
+    raster  *bp = (raster *)NULL;
     /* free input rp if isfree is true */
-    int delete_raster();
     int width  = (rp == NULL ? 0 : rp->width),  /* original width of raster */
         height = (rp == NULL ? 0 : rp->height), /* height of raster */
         mback = nback,          /* nback adjusted for minspace */
@@ -1450,15 +1423,13 @@ int type_raster(raster *rp, FILE *fp)
         'A', 'B', 'C', 'D', 'E', '*'
     };
     /* ascii image for one scan line */
-    char    scanline[133];
+    char scanline[133];
     /* #chars in scan (<=display_width)*/
     int scan_width;
     /* height index, width indexes */
     int irow, locol, hicol = (-1);
     /* convert .gf to bitmap if needed */
-    raster  *gftobitmap(), *bitmaprp = rp;
-    /*free bitmap converted for display*/
-    int delete_raster();
+    raster *bitmaprp = rp;
     /* ------------------------------------------------------------
     initialization
     ------------------------------------------------------------ */
@@ -1562,7 +1533,7 @@ raster  *gftobitmap(raster *gf)
     Allocations and Declarations
     ------------------------------------------------------------ */
     /* image raster retuned to caller */
-    raster  *new_raster(), *rp = NULL;
+    raster *rp = NULL;
     /* gf->width, gf->height, #bits */
     int width = 0, height = 0, totbits = 0;
     int format = 0, icount = 0, ncounts = 0,  /*.gf format, count index, #counts*/
@@ -1673,31 +1644,14 @@ subraster *rasterize(char *expression, int size)
     char    chartoken[MAXSUBXSZ+1], *texsubexpr(), /*get subexpression from expr*/
     /* token may be parenthesized expr */
     *subexpr = chartoken;
-    /* check subexpr for braces */
-    int isbrace();
     /*get mathchardef struct for symbol*/
-    mathchardef *symdef, *get_symdef();
+    mathchardef *symdef;
     /*get symtable[] index for ligature*/
-    int ligdef, get_ligature();
+    int ligdef;
     int natoms = 0;         /* #atoms/tokens processed so far */
     /* display debugging output */
-    int type_raster();
-    subraster *rasterize(),         /* recurse */
-    *rastparen(),
-    /* handle parenthesized subexpr's */
-    *rastlimits();
-    /* handle sub/superscripted expr's */
-    subraster *rastcat(),           /* concatanate atom subrasters */
-    *subrastcpy(),
-    /* copy final result if a charaster*/
-    /* new subraster for isstring mode */
-    *new_subraster();
-    subraster *get_charsubraster(),     /* character subraster */
-    *sp = NULL, *prevsp = NULL, /* raster for current, prev char */
-                          /* raster returned to caller */
-                          *expraster = (subraster *)NULL;
-    /* free everything before returning*/
-    int delete_subraster();
+    subraster *sp = NULL, *prevsp = NULL, /* raster for current, prev char */
+              *expraster = (subraster *)NULL; /* raster returned to caller */
     /* current font family */
     int family = fontinfo[fontnum].family;
     int isleftscript = 0,       /* true if left-hand term scripted */
@@ -2217,15 +2171,9 @@ subraster *rastlimits(char **expression, int size, subraster *basesp)
     int isdisplay = (-1);
     /* save original smashmargin */
     int oldsmashmargin = smashmargin;
-    /* display debugging output */
-    int type_raster();
-    /* free dummybase, if necessary */
-    int delete_subraster();
-    /* check if okay to smash scripts */
-    int rastsmashcheck();
     /* --- to check for \limits or \nolimits preceding scripts --- */
     /*check for \limits*/
-    char    *texchar(), *exprptr = *expression, limtoken[255];
+    char    *exprptr = *expression, limtoken[255];
     /* strlen(limtoken) */
     int toklen = 0;
     /* mathchardef struct for limtoken */
@@ -3216,11 +3164,6 @@ end_of_job:
 subraster *rastflags(char **expression, int size, subraster *basesp,
                      int flag, int value, int arg3)
 {
-    /* ------------------------------------------------------------
-    Allocations and Declarations
-    ------------------------------------------------------------ */
-    char    *texsubexpr();
-
     /* value from expression, if needed */
     char valuearg[1024] = "NOVALUE";
     int argvalue = NOVALUE,     /* atoi(valuearg) */
@@ -3490,15 +3433,6 @@ subraster *rastflags(char **expression, int size, subraster *basesp,
 subraster *rastspace(char **expression, int size, subraster *basesp,
                      int width, int isfill, int isheight)
 {
-    /* ------------------------------------------------------------
-    Allocations and Declarations
-    ------------------------------------------------------------ */
-    raster *backspace_raster();
-    subraster *new_subraster();
-    char    *texsubexpr();
-    subraster *rasterize();
-    subraster *rastcat();
-
     /* subraster for space */
     subraster *spacesp = NULL;
     /* for negative space */
@@ -3670,15 +3604,6 @@ end_of_job:
 subraster *rastnewline(char **expression, int size, subraster *basesp,
                        int arg1, int arg2, int arg3)
 {
-    /* ------------------------------------------------------------
-    Allocations and Declarations
-    ------------------------------------------------------------ */
-    /* subraster for both lines */
-    subraster *rastack();
-    subraster *rasterize();
-    char    *texsubexpr();
-    double  strtod();
-
     subraster *newlsp = NULL;
     /*rasterize right half of expression*/
     subraster *rightsp = NULL;
@@ -3761,17 +3686,6 @@ end_of_job:
 subraster *rastarrow(char **expression, int size, subraster *basesp,
                      int drctn, int isBig, int arg3)
 {
-    /* ------------------------------------------------------------
-    Allocations and Declarations
-    ------------------------------------------------------------ */
-    char *texsubexpr();
-    char *texscripts();
-    subraster *arrow_subraster();
-    subraster *rasterize();
-    subraster *new_subraster();
-    int delete_subraster();
-    double  strtod();
-
     subraster *arrowsp = NULL;
     /* parse for optional [width] */
     char widtharg[256];
@@ -3888,17 +3802,13 @@ subraster *rastuparrow(char **expression, int size, subraster *basesp,
     Allocations and Declarations
     ------------------------------------------------------------ */
     /* subraster for arrow */
-    subraster *uparrow_subraster(), *arrowsp = NULL;
+    subraster *arrowsp = NULL;
     /* parse for optional [height] */
-    char    *texsubexpr(), heightarg[256];
+    char heightarg[256];
     /* and _^limits after [width]*/
-    char    *texscripts(), sub[1024], super[1024];
+    char sub[1024], super[1024];
     /*rasterize limits*/
-    subraster *rasterize(), *subsp = NULL, *supsp = NULL;
-    /* cat superscript left, sub right */
-    subraster *rastcat();
-    /* convert ascii [height] to value */
-    double  strtod();
+    subraster *subsp = NULL, *supsp = NULL;
     /* height, width for \longxxxarrow */
     int height = 8 + 2 * size,  width;
     /*true to handle limits internally*/
@@ -4015,15 +3925,10 @@ subraster *rastoverlay(char **expression, int size, subraster *basesp,
     /* ------------------------------------------------------------
     Allocations and Declarations
     ------------------------------------------------------------ */
-    char    *texsubexpr(),          /*parse expression for base,overlay*/
-    /* base, overlay */
-    expr1[512], expr2[512];
-    subraster *rasterize(), *sp1 = NULL, *sp2 = NULL, /*rasterize 1=base, 2=overlay*/
-              *new_subraster(); /*explicitly alloc sp2 if necessary*/
+    char expr1[512], expr2[512]; /* base, overlay */
+    subraster *sp1 = NULL, *sp2 = NULL; /*rasterize 1=base, 2=overlay*/
     /*subraster for composite overlay*/
-    subraster *rastcompose(), *overlaysp = NULL;
-    /* draw diagonal for \Not */
-    int line_raster();
+    subraster *overlaysp = NULL;
     /* ------------------------------------------------------------
     Obtain base, and maybe overlay, and rasterize them
     ------------------------------------------------------------ */
@@ -4142,16 +4047,6 @@ end_of_job:
 subraster *rastfrac(char **expression, int size, subraster *basesp,
                     int isfrac, int arg2, int arg3)
 {
-    /* ------------------------------------------------------------
-    Allocations and Declarations
-    ------------------------------------------------------------ */
-    char    *texsubexpr();
-    subraster *rasterize();
-    subraster *rastack();
-    int rule_raster();
-    int delete_subraster();
-    int type_raster();
-
     /* parsed numer, denom */
     char numer[MAXSUBXSZ+1], denom[MAXSUBXSZ+1];
     /*rasterize numer, denom*/
@@ -4282,14 +4177,6 @@ end_of_job:
 subraster *rastackrel(char **expression, int size, subraster *basesp,
                       int base, int arg2, int arg3)
 {
-    /* ------------------------------------------------------------
-    Allocations and Declarations
-    ------------------------------------------------------------ */
-    char    *texsubexpr();
-    subraster *rasterize();
-    subraster *rastack();
-    int delete_subraster();
-
     /* parsed upper, lower */
     char upper[MAXSUBXSZ+1], lower[MAXSUBXSZ+1];
     /* rasterize upper, lower */
@@ -4371,21 +4258,16 @@ subraster *rastmathfunc(char **expression, int size, subraster *basesp,
     /* ------------------------------------------------------------
     Allocations and Declarations
     ------------------------------------------------------------ */
-    char    *texscripts(),          /* parse expression for _limits */
     /*func as {\rm func}, limits*/
-    func[MAXTOKNSZ+1], limits[MAXSUBXSZ+1];
-    char    *texsubexpr(),          /* parse expression for arg */
-    /* optional func arg */
-    funcarg[MAXTOKNSZ+1];
+    char func[MAXTOKNSZ+1], limits[MAXSUBXSZ+1];
+    char funcarg[MAXTOKNSZ+1]; /* optional func arg */
     /*rasterize func,limits*/
-    subraster *rasterize(), *funcsp = NULL, *limsp = NULL;
-    subraster *rastack(), *mathfuncsp = NULL; /* subraster for mathfunc/limits */
+    subraster *funcsp = NULL, *limsp = NULL;
+    subraster *mathfuncsp = NULL; /* subraster for mathfunc/limits */
     /* font size for limits */
     int limsize = size - 1;
     /*vertical space between components*/
     int vspace = 1;
-    /*free work areas in case of error*/
-    int delete_subraster();
     /* --- table of function names by mathfunc number --- */
     /* number of names in table */
     static  int  numnames = 34;
@@ -4503,7 +4385,7 @@ subraster *rastsqrt(char **expression, int size, subraster *basesp,
     /* ------------------------------------------------------------
     Allocations and Declarations
     ------------------------------------------------------------ */
-    char    *texsubexpr(), subexpr[MAXSUBXSZ+1], /*parse subexpr to be sqrt-ed*/
+    char    subexpr[MAXSUBXSZ+1], /*parse subexpr to be sqrt-ed*/
     /* optional \sqrt[rootarg]{...} */
     rootarg[MAXSUBXSZ+1];
     /* rasterize subexpr */
@@ -4512,11 +4394,8 @@ subraster *rastsqrt(char **expression, int size, subraster *basesp,
             /* optionally preceded by [rootarg]*/
             *new_subraster(), *rootsp = NULL;
     int sqrtheight = 0, sqrtwidth = 0, surdwidth = 0, /* height,width of sqrt */
-                                    rootheight = 0, rootwidth = 0,  /* height,width of rootarg raster */
-                                                                /* height,width,pixsz of subexpr */
-                                                                subheight = 0, subwidth = 0, pixsz = 0;
-    /* put subexpr in constructed sqrt */
-    int rastput();
+        rootheight = 0, rootwidth = 0,  /* height,width of rootarg raster */
+        subheight = 0, subwidth = 0, pixsz = 0; /* height,width,pixsz of subexpr */
     /*space between subexpr and overbar*/
     int overspace = 2;
     /* free work areas */
@@ -4645,21 +4524,18 @@ subraster *rastaccent(char **expression, int size, subraster *basesp,
     Allocations and Declarations
     ------------------------------------------------------------ */
     /*parse subexpr to be accented*/
-    char    *texsubexpr(), subexpr[MAXSUBXSZ+1];
-    char    *texscripts(), *script = NULL,  /* \under,overbrace allow scripts */
-                                     /* parsed scripts */
-                                     subscript[MAXTOKNSZ+1], supscript[MAXTOKNSZ+1];
+    char subexpr[MAXSUBXSZ+1];
+    char *script = NULL;  /* \under,overbrace allow scripts */
+    char subscript[MAXTOKNSZ+1], supscript[MAXTOKNSZ+1]; /* parsed scripts */
+
     /*rasterize subexpr,script*/
-    subraster *rasterize(), *subsp = NULL, *scrsp = NULL;
+    subraster *subsp = NULL, *scrsp = NULL;
     /* stack accent, subexpr, script */
-    subraster *rastack(), *accsubsp = NULL;
+    subraster *accsubsp = NULL;
     /*raster for the accent itself*/
     subraster *accent_subraster(), *accsp = NULL;
     int accheight = 0, accwidth = 0,    /* height, width of accent */
-                                  /* height,width,pixsz of subexpr */
-                                  subheight = 0, subwidth = 0, pixsz = 0;
-    /*free work areas in case of error*/
-    int delete_subraster();
+        subheight = 0, subwidth = 0, pixsz = 0; /* height,width,pixsz of subexpr */
     /*vertical space between accent,sub*/
     int vspace = 0;
     /* ------------------------------------------------------------
@@ -4790,10 +4666,6 @@ subraster *rastfont(char **expression, int size, subraster *basesp,
     /* ------------------------------------------------------------
     Allocations and Declarations
     ------------------------------------------------------------ */
-    char *texsubexpr();
-    subraster *rasterize();
-    subraster *rastflags();
-
     char fontchars[MAXSUBXSZ+1], /* chars to render in font */
     /* turn \cal{AB} into \calA\calB */
     subexpr[MAXSUBXSZ+1];
