@@ -3275,13 +3275,10 @@ subraster *rastflags(char **expression, int size, subraster *basesp,
             gammacorrection = REVERSEGAMMA;
         break;
     case ISSUPER:             /* set supersampling/lowpass flag */
-#ifndef SSFONTS         /* don't have ss fonts loaded */
-        /* so force lowpass */
-        value = 0;
-#endif
-        issupersampling = value;
+        if (value)
+            aaalgorithm = 5;
         /* set fonts */
-        fonttable = (issupersampling ? ssfonttable : aafonttable);
+        fonttable = (value ? ssfonttable : aafonttable);
         break;
     case ISFONTSIZE:          /* set fontsize */
     case ISDISPLAYSIZE:           /* set displaysize */
@@ -3348,7 +3345,7 @@ subraster *rastflags(char **expression, int size, subraster *basesp,
             break;
         case ISFONTSIZE:          /* set fontsize */
             if (argvalue != NOVALUE) {   /* got a value */
-                int largestsize = (issupersampling ? 16 : LARGESTSIZE);
+                int largestsize = (aaalgorithm == 5 ? 16 : LARGESTSIZE);
                 fontsize = (isdelta ? fontsize + argvalue : argvalue);
                 fontsize = max2(0, min2(fontsize, largestsize));
                 shrinkfactor = shrinkfactors[fontsize];

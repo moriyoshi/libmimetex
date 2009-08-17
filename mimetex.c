@@ -587,7 +587,6 @@ int fgalias = 1;
 int fgonly = 0;
 int bgalias = 0;
 int bgonly = 0;       /* aapnm() params */
-int issupersampling = 1; /*1=supersampling 0=lowpass*/
 int *workingparam = (int *)NULL;  /* working parameter */
 subraster *workingbox = (subraster *)NULL; /*working subraster box*/
 int isreplaceleft = 0;      /* true to replace leftexpression */

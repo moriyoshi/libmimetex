@@ -377,14 +377,14 @@ chardef *get_chardef(mathchardef *symdef, int size)
     /* char# of symbol within font */
     charnum = symdef->charnum;
     /* --- check for supersampling --- */
-    if (issupersampling) { /* check for supersampling fonts */
+    if (aaalgorithm == 5) { /* check for supersampling fonts */
         if (fonts != ssfonttable) {     /* uh oh--probably internal error */
             /* force it */
             fonts = ssfonttable;
         }
     }
     /* --- check requested size, and set size increment --- */
-    if (0 && issupersampling) {/* set size index for supersampling */
+    if (0 && aaalgorithm == 5) {/* set size index for supersampling */
         /* index 1 past largest size */
         size = LARGESTSIZE + 1;
     } else {                  /* low pass indexes 0...LARGESTSIZE */
@@ -588,7 +588,7 @@ subraster *get_charsubraster(mathchardef *symdef, int size)
                     sp = (subraster *)NULL;
                     goto end_of_job;
                 }        /* quit */
-            if (issupersampling) {     /* antialias character right here */
+            if (aaalgorithm == 5) {     /* antialias character right here */
                 /* antialiased char raster */
                 raster *aa = NULL;
                 int status = aasupsamp(sp->image, &aa, shrinkfactor, grayscale);

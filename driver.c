@@ -79,23 +79,6 @@
 #define CACHELOG "mimetex.log"    /* default caching log file */
 #endif
 
-#ifdef SS
-#define ISSUPERSAMPLING 1
-#ifndef AAALGORITHM
-#define AAALGORITHM 1       /* default supersampling algorithm */
-#endif
-#ifndef AA                /* anti-aliasing not explicitly set */
-#define AA              /* so define it ourselves */
-#endif
-#ifndef SSFONTS           /* need supersampling fonts */
-#define SSFONTS
-#endif
-#else
-#define ISSUPERSAMPLING 0
-#ifndef AAALGORITHM
-#define AAALGORITHM 3 /*2*/     /* default lowpass algorithm */
-#endif
-#endif
 /* --- image caching (cache images if given -DCACHEPATH=\"path\") --- */
 #ifndef CACHEPATH
 #define ISCACHING 0           /* no caching */
@@ -192,6 +175,13 @@
 #define FORMLEVEL LOGLEVEL        /*msglevel if called from html form*/
 #endif
 
+/* --- anti-aliasing flags (needed by GetPixel() as well as main()) --- */
+#ifdef AA               /* if anti-aliasing requested */
+#define ISAAVALUE 1           /* turn flag on */
+#else
+#define ISAAVALUE 0           /* else turn flag off */
+#endif
+
 extern  char **environ;     /* for \environment directive */
 
 /* ------------------------------------------------------------
@@ -234,7 +224,6 @@ static  char *msgtable[] = {        /* messages referenced by [index] */
 } ;               /* trailer */
 
 static int daemonlevel = 0;    /* incremented in main() */
-static int isss = ISSUPERSAMPLING; /* supersampling flag for main() */
 static int iscaching = ISCACHING;  /* true if caching images */
 static char cachepath[256] = CACHEPATH;  /* relative path to cached files */
 static int isemitcontenttype = 1;  /* true to emit mime content-type */
@@ -527,14 +516,6 @@ globals for gif and png callback functions
 ------------------------------------------------------------ */
 static raster *bitmap_raster = NULL; /* use 0/1 bitmap image or */
 static intbyte *colormap_raster = NULL;  /* anti-aliased color indexes */
-/* --- anti-aliasing flags (needed by GetPixel() as well as main()) --- */
-#ifdef AA               /* if anti-aliasing requested */
-#define ISAAVALUE 1           /* turn flag on */
-#else
-#define ISAAVALUE 0           /* else turn flag off */
-#endif
-
-static int isaa = ISAAVALUE;   /* set anti-aliasing flag */
 
 /* ------------------------------------------------------------
 logging data structure, and default data to be logged
@@ -586,7 +567,7 @@ static int GetPixel(int x, int y)
     int ipixel = y * bitmap_raster->width + x;
     /* value of pixel */
     int pixval = 0;
-    if (!isaa)               /* use bitmap if not anti-aliased */
+    if (aaalgorithm)               /* use bitmap if not anti-aliased */
         /*pixel = 0 or 1*/
         pixval = (int)getlongbit(bitmap_raster->pixmap, ipixel);
     else
@@ -726,7 +707,6 @@ int main(int argc, char *argv[], char *envp[])
     /* for command-line mode output */
     msgfp = stdout;
     /* set supersampling flag */
-    isss = issupersampling;
     /* true to emit mime content-type */
     isemitcontenttype = 1;
     /* reset content-type:, etc. cache */
@@ -900,6 +880,10 @@ int main(int argc, char *argv[], char *envp[])
                         break;
                     case 'c':
                         isemitcontenttype = 0;
+                        argnum--;
+                        break;
+                    case 'a':
+                        aaalgorithm = atoi(argv[argnum]);
                         break;
                     case 's':
                         if (argnum < argc) size = atoi(argv[argnum]);
@@ -1397,7 +1381,7 @@ int main(int argc, char *argv[], char *envp[])
         if (sp ==  NULL) goto end_of_job;
     } /* --- end-of-if((sp=rasterize())==NULL) --- */
     /* ---no border requested, but this adjusts width to multiple of 8 bits--- */
-    if (issupersampling)             /* no border needed for gifs */
+    if (aaalgorithm == 5)             /* no border needed for gifs */
         /* so just extract pixel map */
         bp = sp->image;
     else
@@ -1416,63 +1400,66 @@ int main(int argc, char *argv[], char *envp[])
     /* ------------------------------------------------------------
     generate anti-aliased bytemap from (bordered) bitmap
     ------------------------------------------------------------ */
-    if (isaa) {              /* we want anti-aliased bitmap */
+    if (aaalgorithm) {              /* we want anti-aliased bitmap */
         /* ---
          * allocate bytemap and colormap as per width*height of bitmap
          * ------------------------------------------------------------ */
         /*#bytes needed in byte,colormap*/
         int   nbytes = (bp->width) * (bp->height);
-        if (isss)                  /* anti-aliasing by supersampling */
-            /*bytemap in raster*/
+        if (aaalgorithm == 5) {
+            /* anti-aliasing by supersampling */
+            /* bytemap in raster */
             bytemap_raster = (intbyte *)(bitmap_raster->pixmap);
-        else
-        /* need to allocate bytemap */
-            if (aaalgorithm == 0)        /* anti-aliasing not wanted */
-                /* so signal no anti-aliasing */
-                isaa = 0;
-            else
+        } else {
             /* anti-aliasing wanted */
-                if ((bytemap_raster = (intbyte *)malloc(nbytes))  /* malloc bytemap */
-                        /* reset flag if malloc failed */
-                        ==   NULL) isaa = 0;
-        if (isaa)                  /* have bytemap, so... */
-            if ((colormap_raster = (intbyte *)malloc(nbytes))  /* malloc colormap */
-                    /* reset flag if malloc failed */
-                    ==   NULL) isaa = 0;
+            /* malloc bytemap and colormap */
+            if ((bytemap_raster = (intbyte *)malloc(nbytes)) == NULL) {
+                fprintf(msgfp, "allocation failure\n");
+                goto end_of_job;
+            }
+            /* have bytemap, so... */
+            if ((colormap_raster = (intbyte *)malloc(nbytes)) == NULL) {
+                fprintf(msgfp, "allocation failure\n");
+                goto end_of_job;
+            }
+        }
         /* ---
          * now generate anti-aliased bytemap and colormap from bitmap
          * ------------------------------------------------------------ */
-        if (isaa) {                /*re-check that we're anti-aliasing*/
-            /* ---
-             * select anti-aliasing algorithm
-             * ------------------------------------------------------------ */
-            if (!isss)           /* generate bytemap for lowpass */
-                switch (aaalgorithm) {          /* choose antialiasing algorithm */
-                default:
-                    isaa = 0;
-                    /* unrecognized algorithm */
-                    break;
-                case 1:              /* 1 for aalowpass() */
-                    if (aalowpass(bp, bytemap_raster, grayscale) /*my own lowpass filter*/
-                            /*failed, so turn off anti-aliasing*/
-                            ==   0)  isaa = 0;
-                    break;
-                case 2:              /*2 for netpbm pnmalias.c algorithm*/
-                    if (aapnm(bp, bytemap_raster, grayscale) /* pnmalias.c filter */
-                            /*failed, so turn off anti-aliasing*/
-                            ==   0)  isaa = 0;
-                    break;
-                case 3:              /*3 for aapnm() based on aagridnum()*/
-                    if (aapnmlookup(bp, bytemap_raster, grayscale) /* pnmalias.c filter */
-                            /*failed, so turn off anti-aliasing*/
-                            ==   0)  isaa = 0;
-                    break;
-                case 4:              /* 4 for aalookup() table lookup */
-                    if (aalowpasslookup(bp, bytemap_raster, grayscale) /* aalookup() */
-                            /*failed, so turn off anti-aliasing*/
-                            ==   0)  isaa = 0;
-                    break;
-                } /* --- end-of-switch(aaalgorithm) --- */
+        /* ---
+         * select anti-aliasing algorithm
+         * ------------------------------------------------------------ */
+        /* generate bytemap for lowpass */
+        switch (aaalgorithm) {          /* choose antialiasing algorithm */
+        default:
+            /* unrecognized algorithm */
+            break;
+        case 1:              /* 1 for aalowpass() */
+            /*my own lowpass filter*/
+            /*failed, so turn off anti-aliasing*/
+            if (aalowpass(bp, bytemap_raster, grayscale) == 0) {
+                aaalgorithm = 0;
+            }
+            break;
+        case 2:              /*2 for netpbm pnmalias.c algorithm*/
+            if (aapnm(bp, bytemap_raster, grayscale) == 0) {
+                aaalgorithm = 0;
+            }
+            break;
+        case 3:              /*3 for aapnm() based on aagridnum()*/
+            if (aapnmlookup(bp, bytemap_raster, grayscale) == 0) {
+                aaalgorithm = 0;
+            }
+            break;
+        case 4:              /* 4 for aalookup() table lookup */
+            if (aalowpasslookup(bp, bytemap_raster, grayscale) == 0) {
+                aaalgorithm = 0;
+            }
+            break;
+        case 5: /* supersampling */
+            break;
+        } /* --- end-of-switch(aaalgorithm) --- */
+        if (aaalgorithm) {              /* we have bytemap_raster */
             /* ---
              * emit aalookup() pattern# counts/percents diagnostics
              * ------------------------------------------------------------ */
@@ -1505,27 +1492,27 @@ int main(int argc, char *argv[], char *envp[])
                             "all patterns: %7d          +%7d          =%7d  total pixels\n",
                             pcount0, pcount1, pcount0 + pcount1);
             }
-            /* ---
-             * finally, generate colors and colormap
-             * ------------------------------------------------------------ */
-            if (isaa) {              /* we have bytemap_raster */
+            if (colormap_raster) {
+                /* ---
+                 * finally, generate colors and colormap
+                 * ------------------------------------------------------------ */
                 ncolors = aacolormap(bytemap_raster, nbytes, colors, colormap_raster);
                 if (ncolors < 2) {     /* failed */
                     /* so turn off anti-aliasing */
-                    isaa = 0;
+                    aaalgorithm = 0;
                     ncolors = 2;
                 }        /* and reset for black&white */
-            } /* --- end-of-if(isaa) --- */
-            if (isaa && ispbmpgm && ptype > 1) { /* -g2 switch  */
-                /*construct arg for write_pbmpgm()*/
-                raster pbm_raster;
-                pbm_raster.width  = bp->width;
-                pbm_raster.height = bp->height;
-                pbm_raster.pixsz  = 8;
-                pbm_raster.pixmap = (pixbyte *)bytemap_raster;
-                type_pbmpgm(&pbm_raster, ptype, pbm_outfile);
-            } /*write grayscale file*/
-        } /* --- end-of-if(isaa) --- */
+                if (ispbmpgm && ptype > 1) { /* -g2 switch  */
+                    /*construct arg for write_pbmpgm()*/
+                    raster pbm_raster;
+                    pbm_raster.width  = bp->width;
+                    pbm_raster.height = bp->height;
+                    pbm_raster.pixsz  = 8;
+                    pbm_raster.pixmap = (pixbyte *)bytemap_raster;
+                    type_pbmpgm(&pbm_raster, ptype, pbm_outfile);
+                } /*write grayscale file*/
+            }
+        }
     } /* --- end-of-if(isaa) --- */
     /* ------------------------------------------------------------
     display results on msgfp if called from command line (usually for testing)
@@ -1535,14 +1522,14 @@ int main(int argc, char *argv[], char *envp[])
             /* ---
              * display ascii image of rasterize()'s rasterized bitmap
              * ------------------------------------------------------------ */
-            if (!isss) {               /* no bitmap for supersampling */
+            if (aaalgorithm != 5) {               /* no bitmap for supersampling */
                 fprintf(msgfp, "\nAscii dump of bitmap image...\n");
                 type_raster(bp, msgfp);
             }      /* emit ascii image of raster */
             /* ---
              * display anti-aliasing results applied to rasterized bitmap
              * ------------------------------------------------------------ */
-            if (isaa) {                /* if anti-aliasing applied */
+            if (aaalgorithm) {                /* if anti-aliasing applied */
                 /* colors[] index */
                 int igray;
                 /* --- anti-aliased bytemap image --- */
@@ -1551,17 +1538,19 @@ int main(int argc, char *argv[], char *envp[])
                             "asterisks denote \"black\" bytes (value=%d)...\n", grayscale - 1);
                     type_bytemap(bytemap_raster, grayscale, bp->width, bp->height, msgfp);
                 }
-                /* --- colormap image --- */
-                fprintf(msgfp, "\nHex dump of colormap indexes, " /* emit colormap */
-                        "asterisks denote \"black\" bytes (index=%d)...\n", ncolors - 1);
-                type_bytemap(colormap_raster, ncolors, bp->width, bp->height, msgfp);
-                /* --- rgb values corresponding to colormap indexes */
-                fprintf(msgfp, "\nThe %d colormap indexes denote rgb values...", ncolors);
-                for (igray = 0; igray < ncolors; igray++) /* show colors[] values */
-                    fprintf(msgfp, "%s%2x-->%3d", (igray % 5 ? "   " : "\n"),
-                            igray, (int)(colors[ncolors-1] - colors[igray]));
-                /* always needs a final newline */
-                fprintf(msgfp, "\n");
+                if (colormap_raster) {
+                    /* --- colormap image --- */
+                    fprintf(msgfp, "\nHex dump of colormap indexes, " /* emit colormap */
+                            "asterisks denote \"black\" bytes (index=%d)...\n", ncolors - 1);
+                    type_bytemap(colormap_raster, ncolors, bp->width, bp->height, msgfp);
+                    /* --- rgb values corresponding to colormap indexes */
+                    fprintf(msgfp, "\nThe %d colormap indexes denote rgb values...", ncolors);
+                    for (igray = 0; igray < ncolors; igray++) /* show colors[] values */
+                        fprintf(msgfp, "%s%2x-->%3d", (igray % 5 ? "   " : "\n"),
+                                igray, (int)(colors[ncolors-1] - colors[igray]));
+                    /* always needs a final newline */
+                    fprintf(msgfp, "\n");
+                }
             } /* --- end-of-if(isaa) --- */
         } /* --- end-of-if(!isquery||msglevel>=9) --- */
     /* ------------------------------------------------------------
@@ -1646,14 +1635,14 @@ int main(int argc, char *argv[], char *envp[])
         } /* --- end-of-while(1) --- */
         /* background white if all 255 */
         GIF_SetColor(0, bgred, bggreen, bgblue);
-        if (!isaa) {               /* just b&w if not anti-aliased */
+        if (!aaalgorithm) {               /* just b&w if not anti-aliased */
             /* foreground black if all 0 */
             GIF_SetColor(1, fgred, fggreen, fgblue);
+            /* and set 2 b&w color indexes */
             colors[0] = '\000';
             colors[1] = '\001';
-        } /* and set 2 b&w color indexes */
-        else
-        /* set grayscales for anti-aliasing */
+        } else {
+            /* set grayscales for anti-aliasing */
             /* --- anti-aliased, so call GIF_SetColor() for each colors[] --- */
             for (igray = 1; igray < ncolors; igray++) { /* for colors[] values */
                 /*--- gfrac goes from 0 to 1.0, as igray goes from 0 to ncolors-1 ---*/
@@ -1666,6 +1655,7 @@ int main(int argc, char *argv[], char *envp[])
                 /*set gray,grayer,...,0=black*/
                 GIF_SetColor(igray, red, green, blue);
             } /* --- end-of-for(igray) --- */
+        }        
         /* --- set gif color#0 (background) transparent --- */
         if (istransparent)             /* transparent background wanted */
             /* set transparent background */
@@ -1707,9 +1697,7 @@ int main(int argc, char *argv[], char *envp[])
     } /* --- end-of-if(isquery) --- */
     /* --- exit --- */
 end_of_job:
-    if (!isss)                 /*bytemap raster in sp for supersamp*/
-        /*free bytemap_raster*/
-        if (bytemap_raster != NULL) free(bytemap_raster);
+    if (aaalgorithm != 5 && bytemap_raster != NULL) free(bytemap_raster);
     /*and colormap_raster*/
     if (colormap_raster != NULL)free(colormap_raster);
     /* free malloced buffer */
