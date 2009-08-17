@@ -516,14 +516,6 @@ debugging and logging / error reporting
 #define ERRORSTATUS 0         /* default doesn't signal errors */
 #endif
 
-/* --- colors --- */
-#define BGRED   0
-#define BGGREEN 0
-#define BGBLUE  0
-#define FGRED   255
-#define FGGREEN 255
-#define FGBLUE  255
-
 int seclevel        = SECURITY;    /* security level */
 int inputseclevel   = INPUTSECURITY; /* \input{} security level */
 int counterseclevel = COUNTERSECURITY; /* \counter{} security level */
@@ -571,12 +563,12 @@ int issmashokay = 0;    /*is leading char okay for smashing*/
 int blanksignal = BLANKSIGNAL;  /*rastsmash signal right-hand blank*/
 int blanksymspace = 0;      /* extra (or too much) space wanted*/
 int istransparent = 1;      /* true sets background transparent*/
-int fgred = FGRED;
-int fggreen = FGGREEN;
-int fgblue = FGBLUE;      /* fg r,g,b */
-int bgred = BGRED;
-int bggreen = BGGREEN;
-int bgblue = BGBLUE;      /* bg r,g,b */
+int fgred = 0;
+int fggreen = 0;
+int fgblue = 0;      /* fg r,g,b */
+int bgred = 255;
+int bggreen = 255;
+int bgblue = 255;      /* bg r,g,b */
 double gammacorrection = 1.25; /* gamma correction */
 int isplusblank = -1;  /*interpret +'s in query as blanks?*/
 int isblackonwhite = 0; /*1=black on white,0=reverse*/

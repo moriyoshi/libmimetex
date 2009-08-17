@@ -80,7 +80,6 @@ extern int issmashokay;    /*is leading char okay for smashing*/
 extern int blanksignal;  /*rastsmash signal right-hand blank*/
 extern int blanksymspace;      /* extra (or too much) space wanted*/
 extern double gammacorrection; /* gamma correction */
-extern int isblackonwhite; /*1=black on white,0=reverse*/
 extern int maxfollow;  /* aafollowline() maxturn parameter*/
 extern int fgalias;
 extern int fgonly;

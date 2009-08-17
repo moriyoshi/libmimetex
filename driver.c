@@ -156,21 +156,6 @@
 #define ERRORSTATUS 0         /* default doesn't signal errors */
 #endif
 
-/* --- black on white background (default), or white on black --- */
-#ifdef WHITE
-#define ISBLACKONWHITE 0      /* white on black background */
-#else
-#define ISBLACKONWHITE 1      /* black on white background */
-#endif
-
-/* --- colors --- */
-#define BGRED   (ISBLACKONWHITE?255:0)
-#define BGGREEN (ISBLACKONWHITE?255:0)
-#define BGBLUE  (ISBLACKONWHITE?255:0)
-#define FGRED   (ISBLACKONWHITE?0:255)
-#define FGGREEN (ISBLACKONWHITE?0:255)
-#define FGBLUE  (ISBLACKONWHITE?0:255)
-
 #ifndef FORMLEVEL
 #define FORMLEVEL LOGLEVEL        /*msglevel if called from html form*/
 #endif
@@ -567,7 +552,7 @@ static int GetPixel(int x, int y)
     int ipixel = y * bitmap_raster->width + x;
     /* value of pixel */
     int pixval = 0;
-    if (aaalgorithm)               /* use bitmap if not anti-aliased */
+    if (!aaalgorithm)               /* use bitmap if not anti-aliased */
         /*pixel = 0 or 1*/
         pixval = (int)getlongbit(bitmap_raster->pixmap, ipixel);
     else
@@ -737,14 +722,15 @@ int main(int argc, char *argv[], char *envp[])
     }  /* and squeeze out leading % char */
     /* signal that image not in memory */
     gifSize = 0;
-    fgred = FGRED;
-    fggreen = FGGREEN;
     /* default foreground colors */
-    fgblue = FGBLUE;
-    bgred = BGRED;
-    bggreen = BGGREEN;
+    fgred = (isblackonwhite?255:0);
+    fggreen = (isblackonwhite?255:0);
+    fgblue = (isblackonwhite?255:0);
     /* default background colors */
-    bgblue = BGBLUE;
+    bgred = (isblackonwhite?0:255);
+    bggreen = (isblackonwhite?0:255);
+    bgblue = (isblackonwhite?0:255);
+
     /* set shrinkfactor */
     shrinkfactor = shrinkfactors[NORMALSIZE];
     for (ipattern = 1; ipattern <= 51; ipattern++)

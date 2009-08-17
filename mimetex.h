@@ -335,6 +335,7 @@ extern int exitstatus     ;     /* exit status (0=success) */
 /* --- embed warnings in rendered expressions, [\xxx?] if \xxx unknown --- */
 extern int warninglevel;  /* warning level */
 extern int ninputcmds;     /* # of \input commands processed */
+extern int isblackonwhite; /*1=black on white,0=reverse*/
 extern int fgred;
 extern int fggreen;
 extern int fgblue;      /* fg r,g,b */
