@@ -650,7 +650,7 @@ int shrinkfactors[]= {
     3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1
 };
 
-mathchardef symtable[] = {
+static mathchardef handlers[] = {
     /* ---------- c o m m a n d  h a n d l e r s --------------
           symbol    arg1     arg2     arg3       function
     -------------------------------------------------------- */
@@ -867,6 +867,10 @@ mathchardef symtable[] = {
     { "\\nonumber",  0, NOVALUE, NOVALUE, (HANDLER)(rastnoop) },
     /* { "\\!",      0, NOVALUE,NOVALUE,  (HANDLER)(rastnoop) }, */
     { "\\cydot",     0, NOVALUE, NOVALUE, (HANDLER)(rastnoop) },
+    { NULL,     -999,   -999,   -999,       NULL }
+};
+
+static mathchardef symbols_cmmi10[] = {
     /* --------------------- C M M I --------------------------
           symbol     charnum    family    class     function
     -------------------------------------------------------- */
@@ -1014,6 +1018,10 @@ mathchardef symtable[] = {
     { "\\jmath",    124,    CMMI10,   VARIABLE, NULL },
     { "\\wp",       125,    CMMI10,   ORDINARY, NULL },
     { "\\vec",      126,    CMMI10,   ORDINARY, NULL },
+    { NULL,     -999,   -999,   -999,       NULL }
+};
+
+static mathchardef symbols_cmmib10[] = {
     /* --------------------- C M M I B ------------------------
           symbol     charnum    family    class     function
     -------------------------------------------------------- */
@@ -1159,6 +1167,10 @@ mathchardef symtable[] = {
     { "\\jmath",    124,    CMMIB10,  VARIABLE, NULL },
     { "\\wp",       125,    CMMIB10,  ORDINARY, NULL },
     { "\\bfvec",    126,    CMMIB10,  ORDINARY, NULL },
+    { NULL,     -999,   -999,   -999,       NULL }
+};
+
+static mathchardef symbols_cmsy10[] = {
     /* --------------------- C M S Y --------------------------
           symbol     charnum    family    class     function
     -------------------------------------------------------- */
@@ -1341,6 +1353,10 @@ mathchardef symtable[] = {
     { "\\Diamond",  125,    CMSY10,   ORDINARY, NULL },
     { "\\Heart",    126,    CMSY10,   ORDINARY, NULL },
     { "\\spadesuit",    127,    CMSY10,   ORDINARY, NULL },
+    { NULL,     -999,   -999,   -999,       NULL }
+};
+
+static mathchardef symbols_cmr10[] = {
     /* ---------------------- C M R ---------------------------
           symbol     charnum    family    class     function
     -------------------------------------------------------- */
@@ -1474,6 +1490,10 @@ mathchardef symtable[] = {
     { "x",      120,    CMR10,   VARIABLE,  NULL },
     { "y",      121,    CMR10,   VARIABLE,  NULL },
     { "z",      122,    CMR10,   VARIABLE,  NULL },
+    { NULL,     -999,   -999,   -999,       NULL }
+};
+
+static mathchardef symbols_cmex10[] = {
     /* --------------------- C M E X --------------------------
           symbol     charnum    family    class     function
     -------------------------------------------------------- */
@@ -1647,6 +1667,10 @@ mathchardef symtable[] = {
     { "\\rightparenbot", 65, CMEX10,   CLOSING,  NULL },
     { "\\leftparenbar", 66, CMEX10,   OPENING,  NULL },
     { "\\rightparenbar", 67, CMEX10,   CLOSING,  NULL },
+    { NULL,     -999,   -999,   -999,       NULL }
+};
+
+static mathchardef symbols_rsfs10[] = {
     /* --------------------- R S F S --------------------------
           symbol     charnum    family    class     function
     -------------------------------------------------------- */
@@ -1704,6 +1728,10 @@ mathchardef symtable[] = {
     { "\\scrX",     23, RSFS10,   VARIABLE, NULL },
     { "\\scrY",     24, RSFS10,   VARIABLE, NULL },
     { "\\scrZ",     25, RSFS10,   VARIABLE, NULL },
+    { NULL,     -999,   -999,   -999,       NULL }
+};
+
+static mathchardef symbols_bbold10[] = {
     /* -------------------- B B O L D -------------------------
           symbol     charnum    family    class     function
     -------------------------------------------------------- */
@@ -1859,6 +1887,10 @@ mathchardef symtable[] = {
     { "\\]",        93,    BBOLD10,   CLOSING,  NULL },
     { "|",      124,   BBOLD10,   BINARYOP, NULL },
     { "\\-",        123,   BBOLD10,   BINARYOP, NULL },
+    { NULL,     -999,   -999,   -999,       NULL }
+};
+
+static mathchardef symbols_stmary10[] = {
     /* ------------------- S T M A R Y ------------------------
           symbol     charnum    family    class     function
     -------------------------------------------------------- */
@@ -1970,6 +2002,10 @@ mathchardef symtable[] = {
     { "\\bigparallel",    102, STMARY10,  OPERATOR, NULL },
     { "\\biginterleave",  103, STMARY10,  OPERATOR, NULL },
     { "\\bignplus",   112, STMARY10,  OPERATOR, NULL },
+    { NULL,     -999,   -999,   -999,       NULL }
+};
+
+static mathchardef symbols_cyr10[] = {
     /* ---------------------- C Y R ---------------------------
           symbol     charnum    family    class     function
     -------------------------------------------------------- */
@@ -2081,6 +2117,25 @@ mathchardef symtable[] = {
     /* --- trailer record --- */
     { NULL,     -999,   -999,   -999,       NULL }
 }; /* --- end-of-symtable[] --- */
+
+mathchardef_table symtables[16] = {
+    { NOVALUE,  handlers         },
+	{ CMMI10,   symbols_cmmi10   },
+	{ CMMIB10,  symbols_cmmib10  },
+	{ CMSY10,   symbols_cmsy10   },
+	{ CMR10,    symbols_cmr10    },
+	{ CMEX10,   symbols_cmex10   },
+	{ RSFS10,   symbols_rsfs10   },
+	{ BBOLD10,  symbols_bbold10  },
+	{ STMARY10, symbols_stmary10 },
+	{ CYR10,    symbols_cyr10    },
+    { NOVALUE,  NULL             },
+    { NOVALUE,  NULL             },
+    { NOVALUE,  NULL             },
+    { NOVALUE,  NULL             },
+    { NOVALUE,  NULL             },
+    { NOVALUE,  NULL             }
+};
 
 int tzdelta = 0;
 char pathprefix[256] = { '\000' }; /*prefix for \input,\counter paths*/

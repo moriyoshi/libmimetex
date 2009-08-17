@@ -129,7 +129,7 @@ mathchardef *get_symdef(char *symbol)
     Allocations and Declarations
     ------------------------------------------------------------ */
     /* table of mathchardefs */
-    mathchardef *symdefs = symtable, *symdef, *bestdef = NULL;
+    mathchardef *symdef, *bestdef = NULL;
     /* or we may have a ligature */
     int idef = 0;          /* symdefs[] index */
     int symlen = strlen(symbol),    /* length of input symbol */
@@ -175,13 +175,14 @@ mathchardef *get_symdef(char *symbol)
     /* ------------------------------------------------------------
     If in \displaystyle mode, first xlate int to Bigint, etc.
     ------------------------------------------------------------ */
-    if (isdisplaystyle > 1)          /* we're in \displaystyle mode */
+    if (isdisplaystyle > 1) {
+        /* we're in \displaystyle mode */
         for (idef = 0; ; idef++) {     /* lookup symbol in displaysyms */
-            char *fromsym = displaysyms[idef][0], /* look for this symbol */
-                            /* and xlate it to this symbol */
-                            *tosym = displaysyms[idef][1];
+            char *fromsym = displaysyms[idef][0]; /* look for this symbol */
+            char *tosym = displaysyms[idef][1]; /* and xlate it to this symbol */
             /* end-of-table */
-            if (fromsym == NULL) break;
+            if (fromsym == NULL)
+                break;
             if (!strcmp(symbol, fromsym)) {  /* found a match */
                 if (msglevel >= 99 && msgfp != NULL) { /* debugging output */
                     fprintf(msgfp, "get_symdef> isdisplaystyle=%d, xlated %s to %s\n",
@@ -195,28 +196,26 @@ mathchardef *get_symdef(char *symbol)
                 break;
             }            /* no need to search further */
         } /* --- end-of-for(idef) --- */
+    }
     /* ------------------------------------------------------------
     search symdefs[] in order for first occurrence of symbol
     ------------------------------------------------------------ */
-    for (idef = 0; ; idef++) {
-        /* until trailer record found */
-        /* reached end-of-table */
-        if (symdefs[idef].symbol == NULL) {
-            break;
-        } else {
+    for (idef = 0; symtables[idef].table; idef++) {
+        for (symdef = symtables[idef].table; symdef->symbol; symdef++) {
+            /* until trailer record found */
             /* check against caller's symbol */
-            if (strncmp(symbol, symdefs[idef].symbol, symlen) == 0) {
+            if (strncmp(symbol, symdef->symbol, symlen) == 0) {
                 /* found match */
                 if ((fontnum == 0 || family == CYR10)    /* mathmode, so check every match */
                         || (0 && istextmode &&
                                 (!alphasym  /* text mode and not alpha symbol */
-                                 || symdefs[idef].handler != NULL)) /* or text mode and directive */
-                        || (symdefs[idef].family == family /* have correct family */
-                            && symdefs[idef].handler == NULL)) /* and not a handler collision */ {
-                    if ((deflen = strlen(symdefs[idef].symbol)) < minlen) {
+                                 || symdef->handler != NULL)) /* or text mode and directive */
+                        || (symdef->family == family /* have correct family */
+                            && symdef->handler == NULL)) /* and not a handler collision */ {
+                    if ((deflen = strlen(symdef->symbol)) < minlen) {
                         /*new best match*/
                         /* save index of new best match */
-                        bestdef = &symdefs[idef];
+                        bestdef = symdef;
                         /* and save its len for next test */
                         if ((minlen = deflen) ==  symlen)
                             /*perfect match, so return with it*/
@@ -245,8 +244,8 @@ mathchardef *get_symdef(char *symbol)
 end_of_job:
     if (msgfp != NULL && msglevel >= 999) { /* debugging output */
         fprintf(msgfp,
-            "get_symdef> symbol=%s matches symtable[%d]=%s (isligature=%d)\n",
-            symbol, bestdef ? bestdef - symdefs: -9999, !bestdef ? "NotFound" : bestdef->symbol, isligature);
+            "get_symdef> symbol=%s is %smatched (isligature=%d)\n",
+            symbol, bestdef ? "": "not ", isligature);
         fflush(msgfp);
     }
     /*NULL or best symdef[]*/
@@ -274,7 +273,7 @@ mathchardef *get_ligature(char *expression, int family)
     Allocations and Declarations
     ------------------------------------------------------------ */
     /* table of mathchardefs */
-    mathchardef *symdefs = symtable, *symdef, *bestdef = NULL;
+    mathchardef *symdef, *bestdef = NULL;
     char    *ligature = expression /*- 1*/, /* expression ptr */
             *symbol = NULL; /* symdefs[idef].symbol */
     /* #chars remaining in expression */
@@ -287,37 +286,37 @@ mathchardef *get_ligature(char *expression, int family)
     search symdefs[] in order for first occurrence of symbol
     ------------------------------------------------------------ */
     if (!isstring) {
-        /* no ligatures in "string" mode */
-        for (idef = 0; ; idef++) {
-            /* until trailer record found */
-            /* end-of-table */
-            if ((symbol = symdefs[idef].symbol) == NULL) {
-                break;
-            } else {                /* check against caller's ligature */
+        for (idef = 0; symtables[idef].table; idef++) {
+            /* skip handler tables */
+            if (symtables[idef].family == NOVALUE)
+                continue;
+            /* no ligatures in "string" mode */
+            for (symdef = symtables[idef].table; symdef->symbol; symdef++) {
                 /* #chars in symbol */
                 int symlen = strlen(symbol);
                 if ((symlen > 1 || iscyrfam)  /*ligature >1 char long or cyrillic*/
                         &&   symlen <= liglen       /* and enough remaining chars */
-                        && (*symbol != '\\' || iscyrfam)     /* not escaped or cyrillic */
-                        &&   symdefs[idef].handler == NULL) /* and not a handler */ {
+                        && (*symbol != '\\' || iscyrfam)) /* not escaped or cyrillic */ {
                     if (strncmp(ligature, symbol, symlen) == 0) {
                         /* found match */
                         if (family < 0             /* no family specifies */
-                                ||   symdefs[idef].family == family) {  /* or have correct family */
+                                ||   symdef->family == family) {  /* or have correct family */
                             if (symlen > maxlen) {        /* new longest ligature */
                                 /* save index of new best match */
-                                bestdef = &symdef[idef];
+                                bestdef = symdef;
                                 /* and save its len for next test */
                                 maxlen = symlen;
                             }
                         }
                     }
-                }
-            } /* --- end-of-if/else(symbol==NULL) --- */
+                } /* --- end-of-if/else(symbol==NULL) --- */
+            }
         }
         if (msgfp != NULL && msglevel >= 999) { /* debugging output */
-            fprintf(msgfp, "get_ligature> ligature=%.4s matches symtable[%d]=%s\n",
-                    ligature, bestdef ? bestdef - symdefs: -9990, !bestdef ? "NotFound" : bestdef->symbol);
+            if (bestdef)
+                fprintf(msgfp, "get_ligature> ligature=%.4s is matched to symbol %s\n", ligature, bestdef->symbol);
+            else
+                fprintf(msgfp, "get_ligature> ligature=%.4s is not matched to any symbol\n", ligature);
             fflush(msgfp);
         }
     } /* --- end-of-if(!isstring) --- */
@@ -652,7 +651,7 @@ subraster *get_delim(char *symbol, int height, int family)
     Allocations and Declarations
     ------------------------------------------------------------ */
     /* table of mathchardefs */
-    mathchardef *symdefs = symtable, *bestdef = NULL, *bigdef = NULL;
+    mathchardef *bestdef = NULL, *bigdef = NULL;
     /* best match char */
     subraster *get_charsubraster(), *sp = (subraster *)NULL;
     /* construct delim if can't find it*/
@@ -721,14 +720,14 @@ subraster *get_delim(char *symbol, int height, int family)
         iswidth = 1;
     }          /* set flag for width search */
     /* --- search symdefs[] for best-fit height (or width) --- */
-    for (idef = 0; ; idef++) {       /* until trailer record found */
-        /* local copies */
-        char *defsym = symdefs[idef].symbol;
-        int  deffam  = symdefs[idef].family;
-        /* reached end-of-table */
-        if (defsym == NULL) break;
-        else
-        /* check against caller's symbol */
+    for (idef = 0; symtables[idef].table; idef++) {
+        mathchardef *symdef;
+        for (symdef = symtables[idef].table; symdef->symbol; symdef++) {
+            /* local copies */
+            char *defsym = symdef->symbol;
+            int  deffam  = symdef->family;
+            /* reached end-of-table */
+            /* check against caller's symbol */
             if (family < 0 || deffam == family /* if explicitly in caller's family*/
                     || (family == CMSYEX && (deffam == CMSY10 || deffam == CMEX10 || deffam == STMARY10))) {
                 /* local copy of symdefs[] symbol */
@@ -742,39 +741,44 @@ subraster *get_delim(char *symbol, int height, int family)
                         if (isalpha(*symptr)) *symptr = tolower(*symptr);
                 /* #chars in symbol we're checking */
                 deflen = strlen(lcsymbol);
-                if ((symptr = strstr(lcsymbol, unescsymbol)) != NULL) /*found caller's sym*/
+                if ((symptr = strstr(lcsymbol, unescsymbol)) != NULL) /*found caller's sym*/ {
                     if ((isoint || strstr(lcsymbol, "oint") == NULL) /* skip unwanted "oint"*/
-                            && (issq || strstr(lcsymbol, "sq") == NULL)) /* skip unwanted "sq" */
+                            && (issq || strstr(lcsymbol, "sq") == NULL)) /* skip unwanted "sq" */ {
                         if ((deffam == CMSY10 ?         /* CMSY10 or not CMSY10 */
                                 symptr == lcsymbol        /* caller's sym is a prefix */
                                 && deflen == symlen :     /* and same length */
                                 (iscurly || strstr(lcsymbol, "curly") == NULL) &&/*not unwanted curly*/
                                 (symptr == lcsymbol       /* caller's sym is a prefix */
-                                 || symptr == lcsymbol + deflen - symlen))) /* or a suffix */
-                            for (size = 0; size <= LARGESTSIZE; size++) /* check all font sizes */
-                                if ((gfdata = get_chardef(&(symdefs[idef]), size)) != NULL) { /*got one*/
+                                 || symptr == lcsymbol + deflen - symlen))) /* or a suffix */ {
+                            for (size = 0; size <= LARGESTSIZE; size++) /* check all font sizes */ {
+                                if ((gfdata = get_chardef(symdef, size)) != NULL) { /*got one*/
                                     /* height of this character */
                                     defheight = gfdata->image.height;
                                     if (iswidth)         /* width search wanted instead... */
                                         /* ...so substitute width */
                                         defheight = gfdata->image.width;
                                     /* set symbol class, etc */
-                                    leftsymdef = &(symdefs[idef]);
+                                    leftsymdef = symdef;
                                     if (defheight >= height && defheight < bestheight) { /*new best fit*/
-                                        bestdef = &symdefs[idef];
+                                        bestdef = symdef;
                                         /* save indexes of best fit */
                                         bestsize = size;
                                         bestheight = defheight;
                                     }   /* and save new best height */
                                     if (defheight >= bigheight) {    /* new biggest character */
-                                        bigdef = &symdefs[idef];
+                                        bigdef = symdef;
                                         /* save indexes of biggest */
                                         bigsize = size;
                                         bigheight = defheight;
                                     }    /* and save new big height */
                                 } /* --- end-of-if(gfdata!=NULL) --- */
+                            }
+                        }
+                    }
+                }
             } /* --- end-of-if(family) --- */
-    } /* --- end-of-for(idef) --- */
+        } /* --- end-of-for(idef) --- */
+    }
     /* ------------------------------------------------------------
     construct subraster for best fit character, and return it to caller
     ------------------------------------------------------------ */

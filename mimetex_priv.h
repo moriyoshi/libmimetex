@@ -113,7 +113,6 @@ extern fontfamily aafonttable[];
 extern fontfamily ssfonttable[];
 extern fontfamily *fonttable;
 
-
 /* --- dummy font table (for contexts requiring const) --- */
 #define dummyfonttable \
   { \

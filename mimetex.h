@@ -181,6 +181,11 @@ typedef struct mathchardef_struct {
     HANDLER handler;          /* e.g., rastfrac() for \frac's */
 } mathchardef ; /* --- end-of-mathchardef_struct --- */
 
+typedef struct mathchardef_table_struct {
+    int family;
+    mathchardef *table;
+} mathchardef_table;
+
 /* ---
  * classes for mathchardef (TeXbook pg.154)
  * ---------------------------------------- */
@@ -352,11 +357,11 @@ extern int aaalgorithm;  /* for lp, 1=aalowpass, 2 =aapnm */
 /* ---
  * mathchardefs for symbols recognized by mimetex
  * ---------------------------------------------- */
-extern mathchardef symtable[];
-
 extern int tzdelta;
 
 extern char pathprefix[256];
+
+extern mathchardef_table symtables[16];
 
 /* ------------------------------------------------------------
 miscellaneous macros
