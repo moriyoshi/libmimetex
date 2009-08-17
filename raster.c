@@ -535,8 +535,8 @@ subraster *rastcat(subraster *sp1, subraster *sp2, int isfree)
     mathchardef *symdef1 = sp1->symdef, /*mathchardef of last left-hand char*/
                 *symdef2 = sp2->symdef; /* mathchardef of right-hand char */
 
-    int class1 = (symdef1 == NULL ? ORDINARY : symdef1->class), /* symdef->class */
-        class2 = (symdef2 == NULL ? ORDINARY : symdef2->class), /* or default */
+    int class1 = (symdef1 == NULL ? ORDINARY : symdef1->klass), /* symdef->class */
+        class2 = (symdef2 == NULL ? ORDINARY : symdef2->klass), /* or default */
         smash1 = (symdef1 != NULL) &&
             (class1 == ORDINARY || class1 == VARIABLE || class1 == OPENING
                 || class1 == CLOSING || class1 == PUNCTION),

@@ -36,7 +36,7 @@ struct fontinfo_struct {
     char *name;
     int family;
     int istext;
-    int class;
+    int klass;
 };
 
 typedef struct aaparameters_struct

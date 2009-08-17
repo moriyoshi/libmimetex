@@ -172,7 +172,7 @@ typedef struct mathchardef_struct {
     ------------------------------------------------------------------------ */
     int   charnum;            /* char# (as given in .gf file) */
     int   family;             /* font family e.g., 2=math symbol */
-    int   class;              /* e.g., 3=relation, TexBook pg.154*/
+    int   klass;              /* e.g., 3=relation, TexBook pg.154*/
     /* ------------------------------------------------------------------------
     Extra info: some math "functions" require special processing (e.g., \frac)
     ------------------------------------------------------------------------ */

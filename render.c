@@ -1838,7 +1838,7 @@ subraster *rasterize(char *expression, int size)
                     } else {
                     /* --- check if we have special handler to process this token --- */
                         if (symdef->handler != NULL) { /* have a handler for this token */
-                            int arg1 = symdef->charnum, arg2 = symdef->family, arg3 = symdef->class;
+                            int arg1 = symdef->charnum, arg2 = symdef->family, arg3 = symdef->klass;
                             if ((sp = (subraster *)     /* returned void* is subraster* */
                                       (*(symdef->handler))(&expression, size, prevsp, arg1, arg2, arg3)) == NULL)
                                 /* flush token if handler failed */
@@ -2169,7 +2169,7 @@ subraster *rastlimits(char **expression, int size, subraster *basesp)
     /* mathchardef struct for limtoken */
     mathchardef *tokdef;
     /*base sym class*/
-    int class = (leftsymdef == NULL ? NOVALUE : leftsymdef->class);
+    int klass = (leftsymdef == NULL ? NOVALUE : leftsymdef->klass);
     /* ------------------------------------------------------------
     determine whether or not to use displaymath
     ------------------------------------------------------------ */
@@ -2215,19 +2215,19 @@ subraster *rastlimits(char **expression, int size, subraster *basesp)
         isdisplay = 0;
         if (isdisplaystyle) {        /* we're in displaystyle math mode */
             if (isdisplaystyle >= 5) { /* and mode irrevocably forced true */
-                if (class != OPENING && class != CLOSING) /*don't force ('s and )'s*/
+                if (klass != OPENING && klass != CLOSING) /*don't force ('s and )'s*/
                     isdisplay = 1;
             }        /* set flag if mode forced true */
             else if (isdisplaystyle >= 2) {   /*or mode forced conditionally true*/
-                if (class != VARIABLE && class != ORDINARY /*don't force characters*/
-                        &&   class != OPENING  && class != CLOSING  /*don't force ('s and )'s*/
-                        &&   class != BINARYOP    /* don't force binary operators */
-                        &&   class != NOVALUE)    /* finally, don't force "images" */
+                if (klass != VARIABLE && klass != ORDINARY /*don't force characters*/
+                        &&   klass != OPENING  && klass != CLOSING  /*don't force ('s and )'s*/
+                        &&   klass != BINARYOP    /* don't force binary operators */
+                        &&   klass != NOVALUE)    /* finally, don't force "images" */
                     isdisplay = 1;
             }        /* set flag if mode forced true */
             else
             /* determine mode from base symbol */
-                if (class == DISPOPER)   /* it's a displaystyle operator */
+                if (klass == DISPOPER)   /* it's a displaystyle operator */
                     isdisplay = 1;
         }
     }        /* so set flag */
@@ -4665,32 +4665,10 @@ subraster *rastfont(char **expression, int size, subraster *basesp,
     char    *name = NULL;
     int family = 0, /* fontinfo[ifontnum].family */
         istext = 0, /* fontinfo[ifontnum].istext */
-        class = 0; /* fontinfo[ifontnum].class */
+        klass = 0; /* fontinfo[ifontnum].class */
     subraster *fontsp = NULL; /* rasterize chars in font */
     /* turn off smash in text mode */
     int oldsmashmargin = smashmargin;
-#if 0
-    /* --- fonts recognized by rastfont --- */
-    /* legal font #'s are 1...nfonts */
-    static  int  nfonts = 6;
-    static  struct {
-        char *name;
-        int class;
-    }
-    fonts[] = { /* --- name  class 1=upper,2=alpha,3=alnum,4=lower,5=digit,9=all --- */
-        { "\\math", 0 },
-        { "\\mathcal",  1 },        /*(1) calligraphic, uppercase */
-        { "\\mathscr",  1 },        /*(2) rsfs/script, uppercase */
-        { "\\textrm",   -1 },       /*(3) \rm,\text{abc} --> {\rm~abc} */
-        { "\\textit",   -1 },       /*(4) \it,\textit{abc}-->{\it~abc} */
-        { "\\mathbb",   -1 },       /*(5) \bb,\mathbb{abc}-->{\bb~abc} */
-        { "\\mathbf",   -1 },       /*(6) \bf,\mathbf{abc}-->{\bf~abc} */
-        { "\\mathrm",   -1 },       /*(7) \mathrm */
-        { "\\cyr",      -1 },       /*(8) \cyr */
-        { NULL,     0 }
-    /* --- end-of-fonts[] --- */
-    } ;
-#endif
     /* ------------------------------------------------------------
     first get font name and class to determine type of conversion desired
     ------------------------------------------------------------ */
@@ -4703,7 +4681,7 @@ subraster *rastfont(char **expression, int size, subraster *basesp,
     /*true in text mode (respect space)*/
     istext = fontinfo[ifontnum].istext;
     /* font class */
-    class  = fontinfo[ifontnum].class;
+    klass  = fontinfo[ifontnum].klass;
     if (istext) {                /* text (respect blanks) */
         /* needed for \text{if $n-m$ even} */
         mathsmashmargin = smashmargin;
@@ -4712,7 +4690,7 @@ subraster *rastfont(char **expression, int size, subraster *basesp,
     /* ------------------------------------------------------------
     now convert \font{abc} --> {\font~abc}, or convert ABC to \calA\calB\calC
     ------------------------------------------------------------ */
-    if (1 || class < 0) {        /* not character-by-character */
+    if (1 || klass < 0) {        /* not character-by-character */
         /* ---
         if \font not immediately followed by { then it has no arg, so just set flag
         ------------------------------------------------------------ */
@@ -4740,7 +4718,7 @@ subraster *rastfont(char **expression, int size, subraster *basesp,
         strcat(subexpr, fontchars);
         /* terminate with closing } */
         strcat(subexpr, "}");
-    } /* --- end-of-if(class<0) --- */
+    } /* --- end-of-if(klass<0) --- */
     else {                  /* character-by-character */
         /* ---
         convert ABC to \calA\calB\calC
@@ -4767,7 +4745,7 @@ subraster *rastfont(char **expression, int size, subraster *basesp,
                 /* set true if fchar in font class */
                 int isinclass = 0;
                 /* --- class: 1=upper, 2=alpha, 3=alnum, 4=lower, 5=digit, 9=all --- */
-                switch (class) {           /* check if fchar is in font class */
+                switch (klass) {           /* check if fchar is in font class */
                 default:
                     /* no chars in unrecognized class */
                     break;
