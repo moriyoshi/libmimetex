@@ -154,46 +154,4 @@ subraster *rastcalendar();      /* handle \calendar[yaer,month] */
 subraster *rastnoop();          /* handle \escape's to be flushed */
 subraster *rastparen();
 
-int delete_raster();
-int delete_subraster();
-int line_raster();
-int rastput();
-int rastsmashcheck();
-int rule_raster();
-raster *backspace_raster();
-raster *gftobitmap();
-raster *new_raster();
-raster *rastcpy();
-raster *rastrot();
-subraster *arrow_subraster();
-subraster *get_charsubraster();
-subraster *get_delim();
-subraster *new_subraster();
-subraster *rastack();
-subraster *rastcat();
-subraster *rastcompose();
-subraster *rastdispmath();
-subraster *rasterize();
-subraster *rastflags();
-subraster *rastlimits();
-subraster *rastscripts();
-subraster *subrastcpy();
-subraster *uparrow_subraster();
-
-
-/* tex.c */
-char *texchar();
-char *texsubexpr();
-char *texsubexpr();
-char *texscripts();
-int isbrace();
-
-
-/* chardef.c */
-mathchardef *get_ligature();
-mathchardef *get_symdef();
-
-/* render.c */
-int type_raster();
-
 #endif /* MIMETEX_PRIV_H */

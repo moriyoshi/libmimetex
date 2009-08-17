@@ -213,6 +213,10 @@ static int iscaching = ISCACHING;  /* true if caching images */
 static char cachepath[256] = CACHEPATH;  /* relative path to cached files */
 static int isemitcontenttype = 1;  /* true to emit mime content-type */
 static int isnomath = 0;       /* true to inhibit math mode */
+static int seclevel        = SECURITY;    /* security level */
+static int inputseclevel   = INPUTSECURITY; /* \input{} security level */
+static int counterseclevel = COUNTERSECURITY; /* \counter{} security level */
+static int environseclevel = ENVIRONSECURITY; /* \environ{} security level */
 
 static char *md5str(char *instr)
 {
@@ -228,6 +232,823 @@ static char *md5str(char *instr)
     outstr[32] = '\000';
     return (outstr);
 }
+
+/* ==========================================================================
+ * Function:    urlprune ( url, n )
+ * Purpose: Prune http://abc.def.ghi.com/etc into abc.def.ghi.com
+ *      (if n=2 only ghi.com is returned, or if n=-1 only "ghi")
+ * --------------------------------------------------------------------------
+ * Arguments:   url (I)     char * to null-terminated string
+ *              containing url to be pruned
+ *      n (i)       int containing number of levels retained
+ *              in pruned url.  If n<0 its abs() is used,
+ *              but the topmost level (usually .com, .org,
+ *              etc) is omitted.  That is, if n=2 would
+ *              return "ghi.com" then n=-1 returns "ghi".
+ *              n=0 retains all levels.
+ * --------------------------------------------------------------------------
+ * Returns: ( char * )  pointer to (static) null-terminated string
+ *              containing pruned url with the first n
+ *              top-level domain, e.g., for n=2,
+ *              http://abc.def.ghi.com/etc returns ghi.com,
+ *              or an empty string "\000" for any error
+ * --------------------------------------------------------------------------
+ * Notes:     o
+ * ======================================================================= */
+/* --- entry point --- */
+static char *urlprune(char *url, int n)
+{
+    /* ------------------------------------------------------------
+    Allocations and Declarations
+    ------------------------------------------------------------ */
+    /* pruned url returned to caller */
+    static  char pruned[1024];
+    char    *purl = /*NULL*/pruned;     /* ptr to pruned, init for error */
+    /* delimiter separating components */
+    char    *delim = NULL;
+    /* lowercase a string */
+    char    *strnlower();
+    /*true to truncate .com from pruned*/
+    int istruncate = (n < 0 ? 1 : 0);
+    /* number of dots found in url */
+    int ndots = 0;
+    /* ------------------------------------------------------------
+    prune the url
+    ------------------------------------------------------------ */
+    /* --- first check input --- */
+    /* init for error */
+    *pruned = '\000';
+    /* missing input, so return NULL */
+    if (isempty(url)) goto end_of_job;
+    /* flip n positive */
+    if (n < 0) n = (-n);
+    /* retain all levels of url */
+    if (n == 0) n = 999;
+    /* --- preprocess url --- */
+    /* copy url to our static buffer */
+    strninit(pruned, url, 999);
+    /* lowercase it and... */
+    strlower(pruned);
+    trimwhite(pruned);
+    /*remove leading/trailing whitespace*/
+    /* --- first remove leading http:// --- */
+    if ((delim = strstr(pruned, "://")) != NULL) /* found http:// or ftp:// etc */
+        if (((int)(delim - pruned)) <= 8) {    /* make sure it's a prefix */
+            strcpy(pruned, delim + 3);  /* squeeze out leading http:// */
+            trimwhite(pruned);
+        }        /*remove leading/trailing whitespace*/
+    /* --- next remove leading www. --- */
+    if ((delim = strstr(pruned, "www.")) != NULL) /* found www. */
+        if (((int)(delim - pruned)) == 0) {    /* make sure it's the leading chars*/
+            /* squeeze out leading www. */
+            strcpy(pruned, delim + 4);
+            trimwhite(pruned);
+        }        /*remove leading/trailing whitespace*/
+    /* --- finally remove leading / and everything following it --- */
+    if ((delim = strchr(pruned, '/')) != NULL) /* found first / */
+        *delim = '\000';          /* null-terminate url at first / */
+    /* nothing left in url */
+    if (isempty(pruned)) goto end_of_job;
+    /* --- count dots from back of url --- */
+    /*ptr to '\000' terminating pruned*/
+    delim = pruned + strlen(pruned);
+    while (((int)(delim - pruned)) > 0) {    /* don't back up before first char */
+        /* ptr to preceding character */
+        delim--;
+        /* not a dot, so keep looking */
+        if (*delim != '.') continue;
+        /* count another dot found */
+        ndots++;
+        if (istruncate) {              /* remove trailing .com */
+            /* don't truncate any more dots */
+            istruncate = 0;
+            /* truncate pruned url */
+            *delim = '\000';
+            ndots = 0;
+        }            /* and reset dot count */
+        if (ndots >= n) {              /* have all requested levels */
+            /* squeeze out any leading levels */
+            strcpy(pruned, delim + 1);
+            break;
+        }                /* and we're done */
+    } /* --- end-of-while() --- */
+    /*completed okay, return pruned url*/
+    purl = pruned;
+end_of_job:
+    /* back with pruned url */
+    return (purl);
+} /* --- end-of-function urlprune() --- */
+
+/* ==========================================================================
+ * Function:    urlncmp ( url1, url2, n )
+ * Purpose: Compares the n topmost levels of two urls
+ * --------------------------------------------------------------------------
+ * Arguments:   url1 (I)    char * to null-terminated string
+ *              containing url to be compared with url2
+ *      url2 (I)    char * to null-terminated string
+ *              containing url to be compared with url1
+ *      n (I)       int containing number of top levels
+ *              to compare, or 0 to compare them all.
+ *              n<0 compares that many top levels excluding
+ *              the last, i.e., for n=-1, xxx.com and xxx.org
+ *              would be considered a match
+ * --------------------------------------------------------------------------
+ * Returns: ( int )     1 if url's match, or
+ *              0 if not.
+ * --------------------------------------------------------------------------
+ * Notes:     o
+ * ======================================================================= */
+/* --- entry point --- */
+static int urlncmp(char *url1, char *url2, int n)
+{
+    /* ------------------------------------------------------------
+    Allocations and Declarations
+    ------------------------------------------------------------ */
+    char *prune = NULL, /* prune url's */
+         prune1[1024], prune2[1024]; /* pruned copies of url1,url2 */
+    /* true if url's match */
+    int ismatch = 0;
+    /* ------------------------------------------------------------
+    prune url's and compare the pruned results
+    ------------------------------------------------------------ */
+    /* --- check input --- */
+    if (isempty(url1)            /*make sure both url1,url2 supplied*/
+            /* missing input, so return 0 */
+            ||   isempty(url2)) goto end_of_job;
+    /* --- prune url's --- */
+    /* ptr to pruned version of url1 */
+    prune = urlprune(url1, n);
+    /* some problem with url1 */
+    if (isempty(prune)) goto end_of_job;
+    /* local copy of pruned url1 */
+    strninit(prune1, prune, 999);
+    /* ptr to pruned version of url2 */
+    prune = urlprune(url2, n);
+    /* some problem with url2 */
+    if (isempty(prune)) goto end_of_job;
+    /* local copy of pruned url2 */
+    strninit(prune2, prune, 999);
+    /* --- compare pruned url's --- */
+    if (strcmp(prune1, prune2) == 0)     /* pruned url's are identical */
+        /* signal match to caller */
+        ismatch = 1;
+end_of_job:
+    /*back with #matching url components*/
+    return (ismatch);
+} /* --- end-of-function urlncmp() --- */
+
+/* ==========================================================================
+ * Functions:   int  unescape_url ( char *url, int isescape )
+ *      char x2c ( char *what )
+ * Purpose: unescape_url replaces 3-character sequences %xx in url
+ *          with the single character represented by hex xx.
+ *      x2c returns the single character represented by hex xx
+ *          passed as a 2-character sequence in what.
+ * --------------------------------------------------------------------------
+ * Arguments:   url (I)     char * containing null-terminated
+ *              string with embedded %xx sequences
+ *              to be converted.
+ *      isescape (I)    int containing 1 to _not_ unescape
+ *              \% sequences (0 would be NCSA default)
+ *      what (I)    char * whose first 2 characters are
+ *              interpreted as ascii representations
+ *              of hex digits.
+ * --------------------------------------------------------------------------
+ * Returns: ( int )     unescape_url always returns 0.
+ *      ( char )    x2c returns the single char
+ *              corresponding to hex xx passed in what.
+ * --------------------------------------------------------------------------
+ * Notes:     o These two functions were taken verbatim from util.c in
+ *   ftp://ftp.ncsa.uiuc.edu/Web/httpd/Unix/ncsa_httpd/cgi/ncsa-default.tar.Z
+ *        o Not quite "verbatim" -- I added the "isescape logic" 4-Dec-03
+ *      so unescape_url() can be safely applied to input which may or
+ *      may not have been url-encoded.  (Note: currently, all calls
+ *      to unescape_url() pass iescape=0, so it's not used.)
+ *        o Added +++'s to blank xlation on 24-Sep-06
+ *        o Added ^M,^F,etc to blank xlation 0n 01-Oct-06
+ * ======================================================================= */
+/* --- entry point --- */
+static int unescape_url(char *url, int isescape)
+{
+    int x = 0, y = 0, prevescape = 0, gotescape = 0;
+    /* true to xlate plus to blank */
+    int xlateplus = (isplusblank == 1 ? 1 : 0);
+    /* replace + with blank, if needed */
+    int strreplace();
+    char x2c();
+    static char *hex = "0123456789ABCDEFabcdef";
+    /* ---
+     * xlate ctrl chars to blanks
+     * ------------------------------------------------------------ */
+    if (1) {                 /* xlate ctrl chars to blanks */
+        char *ctrlchars = "\n\t\v\b\r\f\a\015";
+        /*initial segment with ctrlchars*/
+        int  seglen = strspn(url, ctrlchars);
+        /* total length of url string */
+        int  urllen = strlen(url);
+        /* --- first, entirely remove ctrlchars from beginning and end --- */
+        if (seglen > 0) {          /*have ctrlchars at start of string*/
+            /* squeeze out initial ctrlchars */
+            strcpy(url, url + seglen);
+            urllen -= seglen;
+        }     /* string is now shorter */
+        while (--urllen >= 0)          /* now remove ctrlchars from end */
+            if (isthischar(url[urllen], ctrlchars))  /* ctrlchar at end */
+                /* re-terminate string before it */
+                url[urllen] = '\000';
+            /* or we're done */
+            else break;
+        /* length of url string */
+        urllen++;
+        /* --- now, replace interior ctrlchars with ~ blanks --- */
+        while ((seglen = strcspn(url, ctrlchars)) < urllen) /*found a ctrlchar*/
+            /* replace ctrlchar with ~ */
+            url[seglen] = '~';
+    } /* --- end-of-if(1) --- */
+    /* ---
+     * xlate +'s to blanks if requested or if deemed necessary
+     * ------------------------------------------------------------ */
+    if (isplusblank == (-1)) {   /*determine whether or not to xlate*/
+        char *searchfor[] = { " ", "%20", "%2B", "%2b", "+++", "++",
+                              "+=+", "+-+", NULL
+                            };
+        int  isearch = 0,         /* searchfor[] index */
+                       /*#occurrences*/
+                       nfound[11] = { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+        /* --- locate occurrences of searchfor[] strings in url --- */
+        for (isearch = 0; searchfor[isearch] != NULL; isearch++) {
+            /* start search at beginning */
+            char *psearch = url;
+            /* init #occurrences count */
+            nfound[isearch] = 0;
+            while ((psearch = strstr(psearch, searchfor[isearch])) != NULL) {
+                /* count another occurrence */
+                nfound[isearch] += 1;
+                psearch += strlen(searchfor[isearch]);
+            } /*resume search after it*/
+        } /* --- end-of-for(isearch) --- */
+        /* --- apply some common-sense logic --- */
+        if (nfound[0] + nfound[1] > 0)     /* we have actual " "s or "%20"s */
+            /* so +++'s aren't blanks */
+            isplusblank = xlateplus = 0;
+        if (nfound[2] + nfound[3] > 0) {   /* we have "%2B" for +++'s */
+            if (isplusblank != 0)        /* and haven't disabled xlation */
+                /* so +++'s are blanks */
+                isplusblank = xlateplus = 1;
+            else
+            /* we have _both_ "%20" and "%2b" */
+                xlateplus = 0;
+        }      /* tough call */
+        if (nfound[4] + nfound[5] > 0  /* we have multiple ++'s */
+                ||   nfound[6] + nfound[7] > 0)   /* or we have a +=+ or +-+ */
+            if (isplusblank != 0)        /* and haven't disabled xlation */
+                /* so xlate +++'s to blanks */
+                xlateplus = 1;
+    } /* --- end-of-if(isplusblank==-1) --- */
+    if (xlateplus > 0) {         /* want +'s xlated to blanks */
+        char *xlateto[] = { "", " ", " ", " + ", " ", " ", " ", " ", " " };
+        while (xlateplus > 0) {        /* still have +++'s to xlate */
+            /* longest +++ string */
+            char plusses[99] = "++++++++++++++++++++";
+            /* null-terminate +++'s */
+            plusses[xlateplus] = '\000';
+            /* xlate +++'s */
+            strreplace(url, plusses, xlateto[xlateplus], 0);
+            /* next shorter +++ string */
+            xlateplus--;
+        } /* --- end-of-while(xlateplus>0) --- */
+    } /* --- end-of-if(xlateplus) --- */
+    /* don't iterate this xlation */
+    isplusblank = 0;
+    /* ---
+     * xlate %nn to corresponding char
+     * ------------------------------------------------------------ */
+    for (; url[y]; ++x, ++y) {
+        gotescape = prevescape;
+        prevescape = (url[x] == '\\');
+        if ((url[x] = url[y]) == '%')
+            if (!isescape || !gotescape)
+                if (isthischar(url[y+1], hex)
+                        && isthischar(url[y+2], hex)) {
+                    url[x] = x2c(&url[y+1]);
+                    y += 2;
+                }
+    }
+    url[x] = '\0';
+    return 0;
+} /* --- end-of-function unescape_url() --- */
+
+/* ==========================================================================
+ * Function:    rasteditfilename ( filename )
+ * Purpose:    edits filename to remove security problems,
+ *        e.g., removes all ../'s and ..\'s.
+ * --------------------------------------------------------------------------
+ * Arguments:    filename (I)    char * to null-terminated string containing
+ *                name of file to be edited
+ * --------------------------------------------------------------------------
+ * Returns:    ( char * )    pointer to edited filename,
+ *                or empty string "\000" if any problem
+ * --------------------------------------------------------------------------
+ * Notes:     o
+ * ======================================================================= */
+/* --- entry point --- */
+static char *rasteditfilename(char *filename)
+{
+    /* ------------------------------------------------------------
+    Allocations and Declarations
+    ------------------------------------------------------------ */
+    static    char editname[2050];        /*edited filename returned to caller*/
+    int    isprefix = (*pathprefix=='\000'?0:1); /* true if paths have prefix */
+    /* ------------------------------------------------------------
+    edit filename
+    ------------------------------------------------------------ */
+    /* --- first check filename arg --- */
+    *editname = '\000';            /* init edited name as empty string*/
+    if (filename == (char *)NULL)
+        /* no filename arg */
+        goto end_of_job;
+    if (*filename == '\000')
+        /* filename is an empty string */
+        goto end_of_job;
+    /* --- init edited filename --- */
+    strcpy(editname, filename);        /* init edited name as input name */
+    compress(editname, ' ');            /* remove embedded blanks */
+    /* --- remove leading or embedded ....'s --- */
+    while (strreplace(editname,"....",NULL,0) > 0);  /* squeeze out ....'s */
+    /* --- remove leading / and \ and dots (and blanks) --- */
+    if (*editname != '\000') {
+        /* still have chars in filename */
+        while (isthischar(*editname, " ./\\"))
+            /* absolute paths invalid so flush leading / or \ (or ' ')*/
+            strcpy(editname, editname + 1);
+    }
+    if (*editname == '\000')
+        /* no chars left in filename */
+        goto end_of_job;
+    /* --- remove leading or embedded ../'s and ..\'s --- */
+    while (strreplace(editname, "../", NULL, 0) > 0);  /* squeeze out ../'s */
+    while (strreplace(editname, "..\\", NULL, 0) > 0); /* and ..\'s */
+    while (strreplace(editname, "../", NULL, 0) > 0);  /* and ../'s again */
+    /* --- prepend path prefix (if compiled with -DPATHPREFIX) --- */
+    if (isprefix && *editname!='\000')    /* filename is preceded by prefix */
+        strchange(0, editname, pathprefix);    /* so prepend prefix */
+end_of_job:
+    /* back with edited filename */
+    return ( editname );
+}
+/* --- end-of-function rasteditfilename() --- */
+
+/* ========================================================================== * Function:    sanitize_pathname ( filename )
+ * Purpose: edits filename to remove security problems,
+ *      e.g., removes all ../'s and ..\'s.
+ * --------------------------------------------------------------------------
+ * Arguments:   filename (I)    char * to null-terminated string containing
+ *              name of file to be edited
+ * --------------------------------------------------------------------------
+ * Returns: ( char * )  pointer to edited filename,
+ *              or empty string "\000" if any problem
+ * --------------------------------------------------------------------------
+ * Notes:     o
+ * ======================================================================= */
+/* --- entry point --- */
+char    *sanitize_pathname(char *filename)
+{
+    /* ------------------------------------------------------------
+    Allocations and Declarations
+    ------------------------------------------------------------ */
+    int strreplace();
+
+    /*edited filename returned to caller*/
+    static  char editname[2050];
+    /* prepend pathprefix if necessary */
+    /* true if paths have prefix */
+    int isprefix = (*pathprefix == '\000' ? 0 : 1);
+    /* ------------------------------------------------------------
+    edit filename
+    ------------------------------------------------------------ */
+    /* --- first check filename arg --- */
+    /* init edited name as empty string*/
+    *editname = '\000';
+    /* no filename arg */
+    if (filename == (char *)NULL) goto end_of_job;
+    /* filename is an empty string */
+    if (*filename == '\000') goto end_of_job;
+    /* --- init edited filename --- */
+    /* init edited name as input name */
+    strcpy(editname, filename);
+    /* remove embedded blanks */
+    compress(editname, ' ');
+    /* --- remove leading or embedded ....'s --- */
+    /* squeeze out ....'s */
+    while (strreplace(editname, "....", NULL, 0) > 0) ;
+    /* --- remove leading / and \ and dots (and blanks) --- */
+    if (*editname != '\000')         /* still have chars in filename */
+        while (isthischar(*editname, " ./\\"))  /* absolute paths invalid */
+            strcpy(editname, editname + 1);  /* so flush leading / or \ (or ' ')*/
+    /* no chars left in filename */
+    if (*editname == '\000') goto end_of_job;
+    /* --- remove leading or embedded ../'s and ..\'s --- */
+    while (strreplace(editname, "../", NULL, 0) > 0) ; /* squeeze out ../'s */
+    /* and ..\'s */
+    while (strreplace(editname, "..\\", NULL, 0) > 0) ;
+    while (strreplace(editname, "../", NULL, 0) > 0) ; /* and ../'s again */
+    /* --- prepend path prefix (if compiled with -DPATHPREFIX) --- */
+    if (isprefix && *editname != '\000') /* filename is preceded by prefix */
+        /* so prepend prefix */
+        strchange(0, editname, pathprefix);
+end_of_job:
+    /* back with edited filename */
+    return (editname);
+} /* --- end-of-function sanitize_pathname() --- */
+
+/* ==========================================================================
+ * Function:    rastopenfile ( filename, mode )
+ * Purpose: Opens filename[.tex] in mode, returning FILE *
+ * --------------------------------------------------------------------------
+ * Arguments:   filename (I/O)  char * to null-terminated string containing
+ *              name of file to open (preceded by path
+ *              relative to mimetex executable)
+ *              If fopen() fails, .tex appeneded,
+ *              and returned if that fopen() succeeds
+ *      mode (I)    char * to null-terminated string containing
+ *              fopen() mode
+ * --------------------------------------------------------------------------
+ * Returns: ( FILE * )  pointer to opened file, or NULL if error
+ * --------------------------------------------------------------------------
+ * Notes:     o
+ * ======================================================================= */
+/* --- entry point --- */
+FILE    *rastopenfile(char *filename, char *mode)
+{
+    /* ------------------------------------------------------------
+    Allocations and Declarations
+    ------------------------------------------------------------ */
+    char *sanitize_pathname();
+
+    FILE    *fp = (FILE *)NULL; /*file pointer to opened filename*/
+    char    texfile[2050] = "\000",     /* local, edited copy of filename */
+            amode[512] = "r"; /* test open mode if arg mode=NULL */
+    /* true of mode!=NULL */
+    int ismode = 0;
+    /* ------------------------------------------------------------
+    Check mode and open file
+    ------------------------------------------------------------ */
+    /* --- edit filename --- */
+    /*edited copy of filename*/
+    strncpy(texfile, sanitize_pathname(filename), 2047);
+    /* make sure it's null terminated */
+    texfile[2047] = '\000';
+    /* --- check mode --- */
+    if (mode != (char *)NULL)        /* caller passed mode arg */
+        if (*mode != '\000') {          /* and it's not an empty string */
+            /* so flip mode flag true */
+            ismode = 1;
+            /* and replace "r" with caller's */
+            strncpy(amode, mode, 254);
+            /* make sure it's null terminated */
+            amode[254] = '\000';
+            compress(amode, ' ');
+        }      /* remove embedded blanks */
+    /* --- open filename or filename.tex --- */
+    if (strlen(texfile) > 1)         /* make sure we got actual filename*/
+        if ((fp = fopen(texfile, amode))   /* try opening given filename */
+                ==   NULL) {              /* failed to open given filename */
+            /* signal possible filename error */
+            strcpy(filename, texfile);
+            /* but first try adding .tex */
+            strcat(texfile, ".tex");
+            if ((fp = fopen(texfile, amode)) /* now try opening filename.tex */
+                    !=   NULL)              /* filename.tex succeeded */
+                strcpy(filename, texfile);
+        }   /* replace caller's filename */
+    /* --- close file if only opened to check name --- */
+    if (!ismode && fp != NULL)       /* no mode, so just checking */
+        /* close file, fp signals success */
+        fclose(fp);
+    /* --- return fp or NULL to caller --- */
+    /*end_of_job:*/
+    if (msglevel >= 9 && msgfp != NULL) { /* debuging */
+        fprintf(msgfp, "rastopenfile> returning fopen(%s,%s) = %s\n",
+                filename, amode, (fp == NULL ? "NULL" : "Okay"));
+        fflush(msgfp);
+    }
+    /* return fp or NULL to caller */
+    return (fp);
+} /* --- end-of-function rastopenfile() --- */
+
+/* ==========================================================================
+ * Function:    rastreadfile ( filename, islock, tag, value )
+ * Purpose: Read filename, returning value as string
+ *      between <tag>...</tag> or entire file if tag=NULL passed.
+ * --------------------------------------------------------------------------
+ * Arguments:   filename (I)    char * to null-terminated string containing
+ *              name of file to read (preceded by path
+ *              relative to mimetex executable)
+ *      islock (I)  int containing 1 to lock file while reading
+ *              (hopefully done by opening in "r+" mode)
+ *      tag (I)     char * to null-terminated string containing
+ *              html-like tagname.  File contents between
+ *              <tag> and </tag> will be returned, or
+ *              entire file if tag=NULL passed.
+ *      value (O)   char * returning value between <tag>...</tag>
+ *              or entire file if tag=NULL.
+ * --------------------------------------------------------------------------
+ * Returns: ( int )     1=okay, 0=some error
+ * --------------------------------------------------------------------------
+ * Notes:     o
+ * ======================================================================= */
+/* --- entry point --- */
+int rastreadfile(char *filename, int islock, char *tag, char *value)
+{
+    /* ------------------------------------------------------------
+    Allocations and Declarations
+    ------------------------------------------------------------ */
+    /* pointer to opened filename */
+    FILE    *fp = (FILE *)NULL, *rastopenfile();
+    char    texfile[1024] = "\000",     /* local copy of input filename */
+            text[MAXLINESZ+1]; /* line from input file */
+    char    *tagp, tag1[1024], tag2[1024];  /* left <tag> and right <tag/> */
+    /* #chars in value, max allowed */
+    int vallen = 0, maxvallen = MAXFILESZ;
+    /* status returned, 1=okay */
+    int status = (-1);
+    /* tag we're looking for */
+    int tagnum = 0;
+    /*int   islock = 1;*/           /* true to lock file */
+    /* ------------------------------------------------------------
+    Open file
+    ------------------------------------------------------------ */
+    /* --- first check output arg --- */
+    /* no output buffer supplied */
+    if (value == (char *)NULL) goto end_of_job;
+    /* init buffer with empty string */
+    *value = '\000';
+    /* --- open filename or filename.tex --- */
+    if (filename != (char *)NULL) {      /* make sure we got filename arg */
+        /* local copy of filename */
+        strncpy(texfile, filename, 1023);
+        /* make sure it's null terminated */
+        texfile[1023] = '\000';
+        fp = rastopenfile(texfile, (islock ? "r+" : "r"));
+    } /* try opening it */
+    /* --- check that file opened --- */
+    if (fp == (FILE *)NULL) {        /* failed to open file */
+        sprintf(value, "{\\normalsize\\rm[file %s?]}", texfile);
+        goto end_of_job;
+    }          /* return error message to caller */
+    /* file opened successfully */
+    status = 0;
+    /* start at beginning of file */
+    if (islock) rewind(fp);
+    /* ------------------------------------------------------------
+    construct <tag>'s
+    ------------------------------------------------------------ */
+    if (tag != (char *)NULL)         /* caller passed tag arg */
+        if (*tag != '\000') {           /* and it's not an empty string */
+            strcpy(tag1, "<");
+            strcpy(tag2, "</"); /* begin with < and </ */
+            strcat(tag1, tag);
+            /* followed by caller's tag */
+            strcat(tag2, tag);
+            strcat(tag1, ">");
+            /* ending both tags with > */
+            strcat(tag2, ">");
+            compress(tag1, ' ');
+            /* remove embedded blanks */
+            compress(tag2, ' ');
+            tagnum = 1;
+        }           /* signal that we have tag */
+    /* ------------------------------------------------------------
+    Read file, concatnate lines
+    ------------------------------------------------------------ */
+    while (fgets(text, MAXLINESZ - 1, fp) != (char *)NULL) { /*read input till eof*/
+        switch (tagnum) {              /* look for left- or right-tag */
+        case 0:
+            status = 1;
+            /* no tag to look for */
+            break;
+        case 1:             /* looking for opening left <tag> */
+            /*haven't found it yet*/
+            if ((tagp = strstr(text, tag1)) == NULL) break;
+            /* shift out preceding text */
+            strcpy(text, tagp + strlen(tag1));
+            /*now looking for closing right tag*/
+            tagnum = 2;
+        case 2:             /* looking for closing right </tag> */
+            /*haven't found it yet*/
+            if ((tagp = strstr(text, tag2)) == NULL) break;
+            /* terminate line at tag */
+            *tagp = '\000';
+            /* done after this line */
+            tagnum = 3;
+            /* successfully read tag */
+            status = 1;
+            break;
+        } /* ---end-of-switch(tagnum) --- */
+        if (tagnum != 1) {             /* no tag or left tag already found*/
+            /* #chars in current line */
+            int textlen = strlen(text);
+            /* quit before overflow */
+            if (vallen + textlen > maxvallen) break;
+            /* concat line to end of value */
+            strcat(value, text);
+            /* bump length */
+            vallen += textlen;
+            if (tagnum > 2) break;
+        }       /* found right tag, so we're done */
+    } /* --- end-of-while(fgets()!=NULL) --- */
+    /* okay if no tag or we found tag */
+    if (tagnum < 1 || tagnum > 2) status = 1;
+    /* close input file after reading */
+    fclose(fp);
+    /* --- return value and status to caller --- */
+end_of_job:
+    /* return status to caller */
+    return (status);
+} /* --- end-of-function rastreadfile() --- */
+
+
+/* ==========================================================================
+ * Function:    rastwritefile ( filename, tag, value, isstrict )
+ * Purpose: Re/writes filename, replacing string between <tag>...</tag>
+ *      with value, or writing entire file as value if tag=NULL.
+ * --------------------------------------------------------------------------
+ * Arguments:   filename (I)    char * to null-terminated string containing
+ *              name of file to write (preceded by path
+ *              relative to mimetex executable)
+ *      tag (I)     char * to null-terminated string containing
+ *              html-like tagname.  File contents between
+ *              <tag> and </tag> will be replaced, or
+ *              entire file written if tag=NULL passed.
+ *      value (I)   char * containing string replacing value
+ *              between <tag>...</tag> or replacing entire
+ *              file if tag=NULL.
+ *      isstrict (I)    int containing 1 to only rewrite existing
+ *              files, or 0 to create new file if necessary.
+ * --------------------------------------------------------------------------
+ * Returns: ( int )     1=okay, 0=some error
+ * --------------------------------------------------------------------------
+ * Notes:     o
+ * ======================================================================= */
+/* --- entry point --- */
+int rastwritefile(char *filename, char *tag, char *value, int isstrict)
+{
+    /* ------------------------------------------------------------
+    Allocations and Declarations
+    ------------------------------------------------------------ */
+    char *timestamp();
+    FILE *rastopenfile();
+    int rastreadfile();
+
+    /* pointer to opened filename */
+    FILE *fp = (FILE *)NULL;
+    char texfile[1024] = "\000";     /* local copy of input filename */
+    char filebuff[MAXFILESZ+1] = "\000"; /* entire contents of file */
+    char tag1[1024], tag2[1024];     /* left <tag> and right <tag/> */
+    int istag = 0,
+        isnewfile = 0,          /* true if writing new file */
+        status = 0; /* status returned, 1=okay */
+    /* true to update <timestamp> tag */
+    int istimestamp = 0;
+    /* ------------------------------------------------------------
+    check args
+    ------------------------------------------------------------ */
+    /* --- check filename and value --- */
+    if (filename == (char *)NULL         /* quit if no filename arg supplied*/
+            /* or no value arg supplied */
+            ||   value == (char *)NULL) goto end_of_job;
+    if (strlen(filename) < 2         /* quit if unreasonable filename */
+            /* or empty value string supplied */
+            ||   *value == '\000') goto end_of_job;
+    /* --- establish filename[.tex] --- */
+    /* local copy of input filename */
+    strncpy(texfile, filename, 1023);
+    /* make sure it's null terminated */
+    texfile[1023] = '\000';
+    if (rastopenfile(texfile, NULL)      /* unchanged or .tex appended */
+            == (FILE *)NULL) {          /* can't open, so write new file */
+        /* fail if new files not permitted */
+        if (isstrict) goto end_of_job;
+        isnewfile = 1;
+    }            /* signal we're writing new file */
+    /* --- check whether tag supplied by caller --- */
+    if (tag != (char *)NULL)         /* caller passed tag argument */
+        if (*tag != '\000') {           /* and it's not an empty string */
+            /* so flip tag flag true */
+            istag = 1;
+            strcpy(tag1, "<");
+            strcpy(tag2, "</"); /* begin tags with < and </ */
+            strcat(tag1, tag);
+            /* followed by caller's tag */
+            strcat(tag2, tag);
+            strcat(tag1, ">");
+            /* ending both tags with > */
+            strcat(tag2, ">");
+            compress(tag1, ' ');
+            compress(tag2, ' ');
+        } /* remove embedded blanks */
+    /* ------------------------------------------------------------
+    read existing file if just rewriting a single tag
+    ------------------------------------------------------------ */
+    /* --- read original file if only replacing a tag within it --- */
+    /* init as empty file */
+    *filebuff = '\000';
+    if (!isnewfile)              /* if file already exists */
+        if (istag)                  /* and just rewriting one tag */
+            if (rastreadfile(texfile, 1, NULL, filebuff) /* read entire existing file */
+                    /* signal error if failed to read */
+                    <=   0) goto end_of_job;
+    /* ------------------------------------------------------------
+    construct new file data if needed (entire file replaced by value if no tag)
+    ------------------------------------------------------------ */
+    if (istag) {             /* only replacing tag in file */
+        /* --- find <tag> and </tag> in file --- */
+        /*tag,buff lengths*/
+        int    tlen1 = strlen(tag1),  tlen2 = strlen(tag2), flen;
+        char   *tagp1 = (isnewfile ? NULL : strstr(filebuff, tag1)), /* <tag> in file*/
+                        *tagp2 = (isnewfile ? NULL : strstr(filebuff, tag2)); /*</tag> in file*/
+        /* --- if adding new <tag> just concatanate at end of file --- */
+        if (tagp1 == (char *)NULL) {        /* add new tag to file */
+            /* --- preprocess filebuff --- */
+            if (tagp2 != (char *)NULL)         /* apparently have ...</tag> */
+                strcpy(filebuff, tagp2 + tlen2);   /* so get rid of leading ...</tag> */
+            if ((flen = strlen(filebuff))  /* #chars currently in buffer */
+                    > 0)                  /* we have non-empty buffer */
+                if (!isthischar(*(filebuff + flen - 1), "\n\r")) /*no newline at end of file*/
+                    /* so add one before new tag */
+                    if (0)strcat(filebuff, "\n");
+            /* --- add new tag --- */
+            /* add opening <tag> */
+            strcat(filebuff, tag1);
+            /* then value */
+            strcat(filebuff, value);
+            strcat(filebuff, tag2);       /* finally closing </tag> */
+            /* newline at end of file */
+            strcat(filebuff, "\n");
+        } /* --- end-of-if(tagp1==NULL) --- */
+        else {                 /* found existing opening <tag> */
+            if (tagp2 == NULL) {           /* apparently have <tag>... */
+                /* so get rid of trailing ... */
+                *(tagp1 + tlen1) = '\000';
+                /* then concatanate value */
+                strcat(filebuff, value);
+                strcat(filebuff, tag2);
+            }      /* and finally closing </tag> */
+            else
+            /* else have <tag>...<tag/> */
+                if ((flen = ((int)(tagp2 - tagp1)) - tlen1) /* len of .'s in <tag>...</tag> */
+                        >=   0)              /* usually <tag> precedes </tag> */
+                    /* change ...'s to value */
+                    strchange(flen, tagp1 + tlen1, value);
+                else {               /* weirdly, </tag> precedes <tag> */
+                    char fbuff[4096];         /* field buff for <tag>value</tag> */
+                    if ((flen = ((int)(tagp1 - tagp2)) + tlen1) /* strlen(</tag>...<tag>) */
+                            /* must be internal error */
+                            <=   0) goto end_of_job;
+                    /* set opening <tag> */
+                    strcpy(fbuff, tag1);
+                    /* then value */
+                    strcat(fbuff, value);
+                    strcat(fbuff, tag2);      /* finally closing </tag> */
+                    strchange(flen, tagp2, fbuff);
+                }    /* replace original </tag>...<tag> */
+        } /* --- end-of-if/else(tagp1==NULL) --- */
+    } /* --- end-of-if(istag) --- */
+    /* ------------------------------------------------------------
+    rewrite file and return to caller
+    ------------------------------------------------------------ */
+    /* --- first open file for write --- */
+    if ((fp = rastopenfile(texfile, "w"))  /* open for write */
+            /* signal error if can't open */
+            == (FILE *)NULL) goto end_of_job;
+    /* --- rewrite and close file --- */
+    if (fputs((istag ? filebuff : value), fp)    /* write filebuff or value */
+            /* signal success if succeeded */
+            !=  EOF) status = 1;
+    /* close output file after writing */
+    fclose(fp);
+    /* --- modify timestamp --- */
+    if (status > 0)              /*forget timestamp if write failed*/
+        if (istimestamp)            /* if we're updating timestamp */
+            if (istag)                 /* only log time in tagged file */
+                if (strstr(tag, "timestamp") == (char *)NULL) { /* but avoid recursion */
+                    /* field buff <timestamp> value */
+                    char fbuff[2048];
+                    /* tag modified */
+                    strcpy(fbuff, tag);
+                    /* spacer */
+                    strcat(fbuff, " modified at ");
+                    /* start with timestamp */
+                    strcat(fbuff, timestamp(tzdelta, 0));
+                    status = rastwritefile(filename, "timestamp", fbuff, 1);
+                }
+    /* --- return status to caller --- */
+end_of_job:
+    /* return status to caller */
+    return (status);
+} /* --- end-of-function rastwritefile() --- */
+
+
 
 /* ==========================================================================
  * Function:    rastenviron ( expression, size, basesp, arg1, arg2, arg3 )
@@ -252,19 +1073,12 @@ static char *md5str(char *instr)
  * Notes:     o
  * ======================================================================= */
 /* --- entry point --- */
-subraster *rastenviron(char **expression, int size, subraster *basesp,
-                       int arg1, int arg2, int arg3)
+static subraster *rastenviron(char **expression, int size, subraster *basesp,
+                              int arg1, int arg2, int arg3)
 {
     /* ------------------------------------------------------------
     Allocations and Declarations
     ------------------------------------------------------------ */
-    char *strwrap();
-    char *strdetex();
-    char *texsubexpr();
-    char *mimeprep();
-    int unescape_url();
-    subraster *rasterize();
-
     /* optional [...] args (for future)*/
     char optarg[255];
     char environstr[8192] = "\000",  /* string for all environment vars */
@@ -380,10 +1194,6 @@ static subraster *rastmessage(char **expression, int size, subraster *basesp,
     /* ------------------------------------------------------------
     Allocations and Declarations
     ------------------------------------------------------------ */
-    char    *texsubexpr();
-    subraster *rasterize();
-    int strreplace();
-    char    *urlprune();
     char    *strdetex();
 
     char amsg[256] = "\000";
@@ -431,9 +1241,399 @@ static subraster *rastmessage(char **expression, int size, subraster *basesp,
     return (messagesp);
 } /* --- end-of-function rastmessage() --- */
 
+/* ==========================================================================
+ * Function:    rastcounter ( expression, size, basesp, arg1, arg2, arg3 )
+ * Purpose: \counter[value]{filename} handler, returns subraster
+ *      containing image of counter value read from filename
+ *      (or optional [value]), and increments counter
+ * --------------------------------------------------------------------------
+ * Arguments:   expression (I/O) char **  to first char of null-terminated
+ *              string immediately following \counter to be
+ *              rasterized, and returning ptr immediately
+ *              following last character processed.
+ *      size (I)    int containing 0-7 default font size
+ *      basesp (I)  subraster *  to character (or subexpression)
+ *              immediately preceding \counter
+ *              (unused, but passed for consistency)
+ *      arg1 (I)    int unused
+ *      arg2 (I)    int unused
+ *      arg3 (I)    int unused
+ * --------------------------------------------------------------------------
+ * Returns: ( subraster * ) ptr to subraster corresponding to \counter
+ *              requested, or NULL for any parsing error
+ * --------------------------------------------------------------------------
+ * Notes:     o Summary of syntax...
+ *        \counter[value][logfile]{filename:tag}
+ *        o :tag is optional
+ * ======================================================================= */
+/* --- entry point --- */
+static subraster *rastcounter(char **expression, int size, subraster *basesp,
+                              int arg1, int arg2, int arg3)
+{
+    /* ------------------------------------------------------------
+    Allocations and Declarations
+    ------------------------------------------------------------ */
+    char *texsubexpr();
+    subraster *rasterize();
+    int rastreadfile();
+    int rastwritefile();
+    char *rasteditfilename();
+    char *timestamp();
+    char *dbltoa();
+
+    char filename[1024] = "\000", /* counter file */
+         logfile[1024] = "\000", tag[1024] = "\000"; /*optional log file and tag*/
+    /* rasterized counter image */
+    subraster *countersp = NULL;
+    FILE *logfp = NULL; /* counter and log file pointers */
+    int status = 0,
+        iscounter = (seclevel <= counterseclevel ? 1 : 0), /*is \counter permitted*/
+        isstrict = 1; /* true to only write to existing files */
+    char text[MAXFILESZ] = "1_", /* only line in counter file without tags */
+         *delim = NULL,      /* delimiter in text */
+         utext[128] = "1_",  /* default delimiter */
+         *udelim = utext + 1;
+         /* underscore delimiter */
+    int counter = 1,        /* atoi(text) (after _ removed, if present) */
+        value = 1,      /* optional [value] argument */
+        gotvalue = 0,       /* set true if [value] supplied */
+        isdelta = 0,        /* set true if [+value] or [-value] is delta*/
+        ordindex = (-1); /* ordinal[] index to append ordinal suffix */
+    /*--- ordinal suffixes based on units digit of counter ---*/
+    static  char *ordinal[] = {
+        "th", "st", "nd", "rd", "th", "th", "th", "th", "th", "th"
+    };
+    /* log vars*/
+    static  char *logvars[] = {"REMOTE_ADDR", "HTTP_REFERER", NULL};
+    /* logvars[commentvar] replaced by comment */
+    static  int  commentvar = 1;
+    /* ------------------------------------------------------------
+    first obtain optional [value][logfile] args immediately following \counter
+    ------------------------------------------------------------ */
+    /* --- first check for optional \counter[value] --- */
+    if (*(*expression) == '[') {     /* check for []-enclosed value */
+        *expression = texsubexpr(*expression, text, 1023, "[", "]", 0, 0);
+        if (*text != '\000')         /* got counter value (or logfile) */
+            if (strlen(text) >= 1) {        /* and it's not an empty string */
+                if (isthischar(*text, "+-0123456789"))  /* check for leading +-digit */
+                    /* signal we got optional value */
+                    gotvalue = 1;
+                else
+                /* not +-digit, so must be logfile */
+                    strcpy(logfile, text);
+            }     /* so just copy it */
+    } /* --- end-of-if(**expression=='[') --- */
+    /* --- next check for optional \counter[][logfile] --- */
+    if (*(*expression) == '[') {     /* check for []-enclosed logfile */
+        *expression = texsubexpr(*expression, filename, 1023, "[", "]", 0, 0);
+        if (*filename != '\000')         /* got logfile (or counter value) */
+            if (strlen(filename) >= 1) {    /* and it's not an empty string */
+                if (!(isthischar(*text, "+-0123456789")) /* not a leading +-digit */
+                        ||   gotvalue)            /* or we already got counter value */
+                    /* so just copy it */
+                    strcpy(logfile, filename);
+                else {            /* leading +-digit must be value */
+                    /* copy value to text line */
+                    strcpy(text, filename);
+                    gotvalue = 1;
+                }
+            }     /* and signal we got optional value*/
+    } /* --- end-of-if(**expression=='[') --- */
+    /* --- evaluate [value] if present --- */
+    if (gotvalue) {              /*leading +-digit should be in text*/
+        /* signal adding */
+        if (*text == '+') isdelta = (+1);
+        /* signal subtracting */
+        if (*text == '-') isdelta = (-1);
+        /*abs(value)*/
+        value = (int)(strtod((isdelta == 0 ? text : text + 1), &udelim) + 0.1);
+        /* set negative value if needed */
+        if (isdelta == (-1)) value = (-value);
+        /* re-init counter */
+        counter = value;
+    } /* --- end-of-if(gotvalue) --- */
+    /* ------------------------------------------------------------
+    obtain counter {filename} argument
+    ------------------------------------------------------------ */
+    /* --- parse for {filename} arg, and bump expression past it --- */
+    *expression = texsubexpr(*expression, filename, 1023, "{", "}", 0, 0);
+    /* --- check for counter filename:tag --- */
+    if (*filename != '\000')         /* got filename */
+        if ((delim = strchr(filename, ':')) /* look for : in filename:tag */
+                != (char *)NULL) {             /* found it */
+            /* null-terminate filename at : */
+            *delim = '\000';
+            strcpy(tag, delim + 1);
+        }      /* and stuff after : is tag */
+    /* ------------------------------------------------------------
+    emit error message for unauthorized users trying to use \counter{}
+    ------------------------------------------------------------ */
+    if (!iscounter) {            /* counterseclevel > seclevel */
+        sprintf(text,
+                "\\ \\text{[\\backslash counter\\lbrace %.128s\\rbrace\\ not permitted]}\\ ",
+                (isempty(filename) ? "???" : filename));
+        /* rasterize error message */
+        goto rasterize_counter;
+    } /* --- end-of-if(!iscounter) --- */
+    /* ------------------------------------------------------------
+    Read and parse file, increment and rewrite counter (with optional underscore)
+    ------------------------------------------------------------ */
+    if (strlen(filename) > 1) {      /* make sure we got {filename} arg */
+        /* --- read and interpret first (and only) line from counter file --- */
+        if (!gotvalue || (isdelta != 0))   /*if no [count] arg or if delta arg*/
+            if ((status = rastreadfile(filename, 1, tag, text)) > 0) { /*try reading file*/
+                /* underscore delim from file */
+                char *vdelim = NULL;
+                /* value and delim from file */
+                double fileval  = strtod(text, &vdelim);
+                /* integerized */
+                counter = (int)(fileval < 0.0 ? fileval - 0.1 : fileval + 0.1);
+                counter += value;         /* bump count by 1 or add/sub delta*/
+                if (!gotvalue) udelim = vdelim;
+            }  /* default to file's current delim */
+        /* --- check for ordinal suffix --- */
+        if (udelim != (char *)NULL)        /* have some delim after value */
+            if (*udelim == '_') {     /* underscore signals ordinal */
+                /* abs(counter) */
+                int abscount = (counter >= 0 ? counter : (-counter));
+                /* least significant digit */
+                ordindex = abscount % 10;
+                if (abscount >= 10)        /* counter is 10 or greater */
+                    if ((abscount / 10) % 10 == 1)  /* and the last two are 10-19 */
+                        ordindex = 0;
+            }     /* use th for 11,12,13 rather than st,nd,rd */
+        /* --- rewrite counter file --- */
+        if (status >= 0) {         /* file was read okay */
+            /*build image of incremented counter*/
+            sprintf(text, "%d", counter);
+            /* tack on _ */
+            if (ordindex >= 0) strcat(text, "_");
+            /* and newline */
+            if (*tag == '\000') strcat(text, "\n");
+            status = rastwritefile(filename, tag, text, isstrict);
+        } /*rewrite counter*/
+    } /* --- end-of-if(strlen(filename)>1) --- */
+    /* ------------------------------------------------------------
+    log counter request
+    ------------------------------------------------------------ */
+    if (strlen(logfile) > 1) {       /* optional [logfile] given */
+        char   comment[1024] = "\000",     /* embedded comment, logfile:comment*/
+                               /* check for : signalling comment */
+                               *commptr = strchr(logfile, ':');
+        /* logfile must exist if isstrict */
+        int    islogokay = 1;
+        if (commptr != NULL) {          /* have embedded comment */
+            /* comment follows : */
+            strcpy(comment, commptr + 1);
+            *commptr = '\000';
+        }        /* null-terminate actual logfile */
+        /* edit log file name */
+        strcpy(logfile, rasteditfilename(logfile));
+        /* given an invalid file name */
+        if (*logfile == '\000') islogokay = 0;
+        else if (isstrict) {            /*okay, but only write if it exists*/
+            if ((logfp = fopen(logfile, "r")) == (FILE *)NULL) /*doesn't already exist*/
+                /* so don't write log file */
+                islogokay = 0;
+            else fclose(logfp);
+        }         /* close file opened for test read */
+        if (islogokay)              /* okay to write logfile */
+            if ((logfp = fopen(logfile, "a"))  /* open logfile */
+                    != (FILE *)NULL) {            /* opened successfully for append */
+                /* logvars[] index */
+                int  ilog = 0;
+                /* first emit timestamp */
+                fprintf(logfp, "%s  ", timestamp(tzdelta, 0));
+                /* emit counter filename */
+                if (*tag == '\000') fprintf(logfp, "%s", filename);
+                /* or tag if we have one */
+                else fprintf(logfp, "<%s>", tag);
+                /* emit counter value */
+                fprintf(logfp, "=%d", counter);
+                if (status < 1)           /* read or re-write failed */
+                    /* emit error */
+                    fprintf(logfp, "(%s %d)", "error status", status);
+                for (ilog = 0; logvars[ilog] != NULL; ilog++) /* log till end-of-table */
+                    if (ilog == commentvar       /* replace with comment... */
+                            &&   commptr != NULL)       /* ...if available */
+                        /* log embedded comment */
+                        fprintf(logfp, "  %.256s", comment);
+                    else {
+                        /*getenv(variable) to be logged*/
+                        char *logval = getenv(logvars[ilog]);
+                        fprintf(logfp, "  %.64s",    /* log variable */
+                                (logval != NULL ? logval : "<unknown>"));
+                    } /* emit value or <unknown> */
+                /* terminating newline */
+                fprintf(logfp, "\n");
+                /* close logfile */
+                fclose(logfp);
+            } /* --- end-of-if(islogokay&&logfp!=NULL) --- */
+    } /* --- end-of-if(strlen(logfile)>1) --- */
+    /* ------------------------------------------------------------
+    construct counter expression and rasterize it
+    ------------------------------------------------------------ */
+    /* --- construct expression --- */
+    /*sprintf(text,"%d",counter);*/     /* start with counter */
+    /* comma-separated counter value */
+    strcpy(text, dbltoa(((double)counter), 0));
+    if (ordindex >= 0) {         /* need to tack on ordinal suffix */
+        /* start with ^ and {\underline{\rm */
+        strcat(text, "^{\\underline{\\rm~");
+        /* then st,nd,rd, or th */
+        strcat(text, ordinal[ordindex]);
+        strcat(text, "}}");
+    }        /* finish with }} */
+    /* --- rasterize it --- */
+rasterize_counter:
+    /* rasterize counter subexpression */
+    countersp = rasterize(text, size);
+    /* --- return counter image to caller --- */
+    /*end_of_job:*/
+    /* return counter image to caller */
+    return (countersp);
+} /* --- end-of-function rastcounter() --- */
+
+/* ==========================================================================
+ * Function:    rastinput ( expression, size, basesp, arg1, arg2, arg3 )
+ * Purpose: \input{filename} handler, reads filename and returns
+ *      subraster containing image of expression read from filename
+ * --------------------------------------------------------------------------
+ * Arguments:   expression (I/O) char **  to first char of null-terminated
+ *              string immediately following \input to be
+ *              rasterized, and returning ptr immediately
+ *              following last character processed.
+ *      size (I)    int containing 0-7 default font size
+ *      basesp (I)  subraster *  to character (or subexpression)
+ *              immediately preceding \input
+ *              (unused, but passed for consistency)
+ *      arg1 (I)    int unused
+ *      arg2 (I)    int unused
+ *      arg3 (I)    int unused
+ * --------------------------------------------------------------------------
+ * Returns: ( subraster * ) ptr to subraster corresponding to expression
+ *              in filename, or NULL for any parsing error
+ * --------------------------------------------------------------------------
+ * Notes:     o Summary of syntax...
+ *        \input{filename}     reads entire file named filename
+ *        \input{filename:tag} reads filename, but returns only
+ *        those characters between <tag>...</tag> in that file.
+ *        o
+ * ======================================================================= */
+/* --- entry point --- */
+static subraster *rastinput(char **expression, int size, subraster *basesp,
+                            int arg1, int arg2, int arg3)
+{
+    /* ------------------------------------------------------------
+    Allocations and Declarations
+    ------------------------------------------------------------ */
+    char    *texsubexpr();
+    subraster *rasterize();
+    int isstrstr();
+    char *mimeprep();
+    char *dbltoa();
+
+    /* args */
+    char tag[1024] = "\000", filename[1024] = "\000";
+    /* rasterized input image */
+    subraster *inputsp = NULL;
+    /* read input file */
+    int status;
+    /* don't reformat (numerical) input */
+    int format = 0, npts = 0;
+    /*true if \input permitted*/
+    int isinput = (seclevel <= inputseclevel ? 1 : 0);
+    /* permitted \input{} paths for any user */
+    char    *inputpath = NULL;
+    /* search for valid inputpath in filename */
+    char    subexpr[MAXFILESZ+1] = "\000", /*concatanated lines from input file*/
+            *reformat = NULL;
+    /* ------------------------------------------------------------
+    obtain [tag]{filename} argument
+    ------------------------------------------------------------ */
+    /* --- parse for optional [tag] or [fmt] arg, bump expression past it --- */
+    if (*(*expression) == '[') {     /* check for []-enclosed value */
+        /* optional argument field */
+        char argfld[MAXTOKNSZ+1];
+        *expression = texsubexpr(*expression, argfld, MAXTOKNSZ - 1, "[", "]", 0, 0);
+        if ((reformat = strstr(argfld, "dtoa")) != NULL) { /*dtoa/dbltoa requested*/
+            format = 1;         /* signal dtoa()/dbltoa() format */
+            if ((reformat = strchr(reformat, '=')) != NULL) /* have dtoa= */
+                npts = (int)strtol(reformat + 1, NULL, 0);
+        } /* so set npts */
+        if (format == 0) {       /* reformat not requested */
+            strninit(tag, argfld, 1020);
+        }
+    }    /* so interpret arg as tag */
+    /* --- parse for {filename} arg, and bump expression past it --- */
+    *expression = texsubexpr(*expression, filename, 1020, "{", "}", 0, 0);
+    /* --- check for alternate filename:tag --- */
+    if (!isempty(filename)           /* got filename */
+            /*&& isempty(tag)*/) {          /* but no [tag] */
+        /* look for : in filename:tag */
+        char *delim = strchr(filename, ':');
+        if (delim != (char *)NULL) {      /* found it */
+            /* null-terminate filename at : */
+            *delim = '\000';
+            strninit(tag, delim + 1, 1020);
+        }
+    }   /* and stuff after : is tag */
+    /* --- check filename for an inputpath valid for all users --- */
+    if (!isinput                 /* if this user can't \input{} */
+            &&   !isempty(filename)         /* and we got a filename */
+            &&   !isempty(inputpath))       /* and an inputpath */
+        if (isstrstr(filename, inputpath, 0))  /* filename has allowed inputpath */
+            /* okay to \input{} this filename */
+            isinput = 1;
+    /* --- guard against recursive runaway (e.g., file \input's itself) --- */
+    if (++ninputcmds > 8)            /* max \input's per expression */
+        /* flip flag off after the max */
+        isinput = 0;
+    /* ------------------------------------------------------------
+    Read file (and convert to numeric if [dtoa] option was given)
+    ------------------------------------------------------------ */
+    if (isinput) {           /* user permitted to use \input{} */
+        /* read file */
+        status = rastreadfile(filename, 0, tag, subexpr);
+        /* quit if problem */
+        if (*subexpr == '\000') goto end_of_job;
+        /* --- rasterize input subexpression  --- */
+        /* preprocess subexpression */
+        mimeprep(subexpr);
+        if (format == 1) {             /* dtoa()/dbltoa() */
+            /* interpret subexpr as double */
+            double d = strtod(subexpr, NULL);
+            if (d != 0.0)            /* conversion to double successful */
+                if ((reformat = dbltoa(d, npts)) != NULL) /* reformat successful */
+                    strcpy(subexpr, reformat);
+        } /*replace subexpr with reformatted*/
+    } /* --- end-of-if(isinput) --- */
+    /* ------------------------------------------------------------
+    emit error message for unauthorized users trying to use \input{}
+    ------------------------------------------------------------ */
+    else {                  /* inputseclevel > seclevel */
+        sprintf(subexpr,
+                "\\ \\text{[\\backslash input\\lbrace %.128s\\rbrace\\ not permitted]}\\ ",
+                (isempty(filename) ? "???" : filename));
+    } /* --- end-of-if/else(isinput) --- */
+    /* ------------------------------------------------------------
+    Rasterize constructed subexpression
+    ------------------------------------------------------------ */
+    /* rasterize subexpression */
+    inputsp = rasterize(subexpr, size);
+    /* --- return input image to caller --- */
+end_of_job:
+    /* return input image to caller */
+    return (inputsp);
+} /* --- end-of-function rastinput() --- */
+
+
+
 static mathchardef extra_handlers[] = {
     { "\\environment", NOVALUE, NOVALUE, NOVALUE, (HANDLER)(rastenviron) },
     { "\\message", NOVALUE, NOVALUE, NOVALUE, (HANDLER)(rastmessage) },
+    { "\\counter", NOVALUE, NOVALUE, NOVALUE, (HANDLER)(rastcounter) },
+    { "\\input", NOVALUE, NOVALUE, NOVALUE, (HANDLER)(rastinput) },
     { NULL,     -999,   -999,   -999,       NULL }
 };
 
@@ -576,24 +1776,13 @@ int main(int argc, char *argv[], char *envp[])
     /* ------------------------------------------------------------
     Allocations and Declarations
     ------------------------------------------------------------ */
-    char *mimeprep();
-    int unescape_url();
     int emitcache();
-    char *timestamp();
-    char *strdetex();
     int logger();
     int ismonth();
     int aacolormap();
-    subraster *rasterize();
     raster *border_raster();
-    int delete_subraster();
-    int type_raster();
     int type_bytemap();
-    int urlncmp();
-    int strreplace();
-    char *urlprune();
     int type_pbmpgm();
-    int isstrstr();
     int aalowpass(), aapnm();
 
     /* --- expression to be emitted --- */

@@ -1044,7 +1044,7 @@ end_of_job:
  * Notes:     o
  * ======================================================================= */
 /* --- entry point --- */
-char    *mimeprep(char *expression)
+char *mimeprep(char *expression)
 {
     /* ------------------------------------------------------------
     Allocations and Declarations

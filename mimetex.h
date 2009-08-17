@@ -329,10 +329,6 @@ typedef struct fontfamily_struct /* typedef for fontfamily */
 
 extern FILE *msgfp;            /* output in command-line mode */
 extern int msglevel       ;    /* message level for verbose/debug */
-extern int seclevel       ;    /* security level */
-extern int inputseclevel  ; /* \input{} security level */
-extern int counterseclevel; /* \counter{} security level */
-extern int environseclevel; /* \environ{} security level */
 extern int errorstatus    ;  /* exit status if error encountered*/
 extern int exitstatus     ;     /* exit status (0=success) */
 /* --- embed warnings in rendered expressions, [\xxx?] if \xxx unknown --- */
@@ -362,6 +358,65 @@ extern int tzdelta;
 extern char pathprefix[256];
 
 extern mathchardef_table symtables[16];
+
+int delete_raster();
+int delete_subraster();
+int line_raster();
+int rastput();
+int rastsmashcheck();
+int rule_raster();
+raster *backspace_raster();
+raster *gftobitmap();
+raster *new_raster();
+raster *rastcpy();
+raster *rastrot();
+subraster *arrow_subraster();
+subraster *get_charsubraster();
+subraster *get_delim();
+subraster *new_subraster();
+subraster *rastack();
+subraster *rastcat();
+subraster *rastcompose();
+subraster *rastdispmath();
+subraster *rasterize();
+subraster *rastflags();
+subraster *rastlimits();
+subraster *rastscripts();
+subraster *subrastcpy();
+subraster *uparrow_subraster();
+
+
+/* tex.c */
+char *texchar();
+char *texsubexpr();
+char *texsubexpr();
+char *texscripts();
+int isbrace();
+char *strdetex(char *s, int mode);
+char *mimeprep(char *expression);
+
+/* chardef.c */
+mathchardef *get_ligature();
+mathchardef *get_symdef();
+
+/* render.c */
+int type_raster();
+
+/* utils.c */
+char *dbltoa(double dblval, int npts);
+int emit_string(FILE *fp, int col1, char *string, char *comment);
+char *calendar(int year, int month, int day);
+char *timestamp(int tzdelta, int ifmt);
+int tzadjust(int tzdelta, int *year, int *month, int *day, int *hour);
+int daynumber(int year, int month, int day);
+char *strwrap(char *s, int linelen, int tablen);
+char *strnlower(char *s, int n);
+int strreplace(char *string, char *from, char *to, int nreplace);
+char *strchange(int nfirst, char *from, char *to);
+char *strwstr(char *string, char *substr, char *white, int *sublen);
+int isstrstr(char *string, char *snippets, int iscase);
+char x2c(char *what);
+int hex_bitmap(raster *rp, FILE *fp, int col1, int isstr);
 
 /* ------------------------------------------------------------
 miscellaneous macros

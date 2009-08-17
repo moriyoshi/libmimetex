@@ -475,34 +475,6 @@ other variables
 #ifndef INPUTPATH           /* \input{} paths permitted for... */
 #define INPUTPATH NULL        /* ...any referer */
 #endif
-#ifndef INPUTSECURITY           /* \input{} security not specified */
-#ifdef INPUTOK            /* but INPUTOK flag specified */
-#define INPUTSECURITY (99999)   /* so enable \input{} */
-#ifndef EXPLICITDEFSECURITY     /* don't override explicit default */
-#undef  DEFAULTSECURITY       /* but we'll override our default */
-#define DEFAULTSECURITY (99999)   /*let -DINPUTOK enable \counter,etc*/
-#endif
-#else
-/* else no \input{} specified */
-#define INPUTSECURITY DEFAULTSECURITY /* set default \input security */
-#endif
-#endif
-#ifndef COUNTERSECURITY         /*\counter{} security not specified*/
-#ifdef COUNTEROK          /* but COUNTEROK flag specified */
-#define COUNTERSECURITY (99999) /* so enable \counter{} */
-#else
-/* else no \counter{} specified */
-#define COUNTERSECURITY DEFAULTSECURITY /*set default \counter security*/
-#endif
-#endif
-#ifndef ENVIRONSECURITY         /* \environ security not specified */
-#ifdef ENVIRONOK          /* but ENVIRONOK flag specified */
-#define ENVIRONSECURITY (99999) /* so enable \environ */
-#else
-/* else no \environ specified */
-#define ENVIRONSECURITY DEFAULTSECURITY /*set default \environ security*/
-#endif
-#endif
 /* ------------------------------------------------------------
 debugging and logging / error reporting
 ------------------------------------------------------------ */
@@ -516,10 +488,6 @@ debugging and logging / error reporting
 #define ERRORSTATUS 0         /* default doesn't signal errors */
 #endif
 
-int seclevel        = SECURITY;    /* security level */
-int inputseclevel   = INPUTSECURITY; /* \input{} security level */
-int counterseclevel = COUNTERSECURITY; /* \counter{} security level */
-int environseclevel = ENVIRONSECURITY; /* \environ{} security level */
 int msglevel        = MSGLEVEL;    /* message level for verbose/debug */
 int errorstatus     = ERRORSTATUS;  /* exit status if error encountered*/
 int exitstatus      = 0;     /* exit status (0=success) */
@@ -688,10 +656,8 @@ static mathchardef handlers[] = {
     { "\\rotatebox", NOVALUE, NOVALUE, NOVALUE, (HANDLER)(rastrotate) },
     { "\\reflectbox", NOVALUE, NOVALUE, NOVALUE, (HANDLER)(rastreflect) },
     { "\\fbox", NOVALUE, NOVALUE, NOVALUE, (HANDLER)(rastfbox) },
-    { "\\input", NOVALUE, NOVALUE, NOVALUE, (HANDLER)(rastinput) },
     { "\\today", NOVALUE, NOVALUE, NOVALUE, (HANDLER)(rasttoday) },
     { "\\calendar", NOVALUE, NOVALUE, NOVALUE, (HANDLER)(rastcalendar) },
-    { "\\counter", NOVALUE, NOVALUE, NOVALUE, (HANDLER)(rastcounter) },
     /* --- spaces --- */
     { "\\/",    1,  NOVALUE, NOVALUE, (HANDLER)(rastspace) },
     { "\\,",    2,  NOVALUE, NOVALUE, (HANDLER)(rastspace) },
