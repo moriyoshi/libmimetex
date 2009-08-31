@@ -8,7 +8,6 @@ libmimetex_la_SOURCES = \
     chardef.c \
     cstruct.c \
     mimetex.c \
-    pbmpgm.c \
     raster.c \
     render.c \
     tex.c \
