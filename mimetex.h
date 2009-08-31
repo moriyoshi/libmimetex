@@ -399,6 +399,8 @@ mathchardef *get_symdef();
 
 /* render.c */
 int type_raster();
+raster  *border_raster(raster *rp, int ntop, int nbot,
+                       int isline, int isfree);
 
 /* utils.c */
 char *dbltoa(double dblval, int npts);

@@ -1664,7 +1664,7 @@ static mathchardef extra_handlers[] = {
  *          by .pbm or .pgm depending on ptype.
  * ======================================================================= */
 /* --- entry point --- */
-static int type_pbmpgm(raster *rp, int ptype, char *file)
+static int type_pbmpgm(raster *rp, int ptype, FILE *fp)
 {
     /* ------------------------------------------------------------
     Allocations and Declarations
@@ -1673,29 +1673,20 @@ static int type_pbmpgm(raster *rp, int ptype, char *file)
     int isokay = 0, nbytes = 0;
     /*height(row), width(col) indexes in raster*/
     int irow = 0, jcol = 0;
-    int pixmin = 9999, pixmax = (-9999), /* min, max pixel value in raster */
-        ngray = 0; /* #gray scale values */
-    FILE
-    /* *fopen(), */
-*fp = NULL; /* pointer to output file (or NULL) */
+    int pixmin = 9999, pixmax = (-9999); /* min, max pixel value in raster */
     char    outline[1024], outfield[256], /* output line, field */
     /* cr at end-of-line */
     cr[16] = "\n\000";
     /* maximum allowed line length */
     int maxlinelen = 70;
     int pixfrac = 6;    /* use (pixmax-pixmin)/pixfrac as step */
-    static char *suffix[] = { NULL, ".pbm", ".pgm" };   /* file.suffix[ptype] */
     static char *magic[] = { NULL, "P1", "P2" };    /*identifying "magic number"*/
-    static char *mode[] = { NULL, "w", "w" }; /* fopen() mode[ptype] */
     /* ------------------------------------------------------------
     check input, determine grayscale,  and set up output file if necessary
     ------------------------------------------------------------ */
     /* --- check input args --- */
     /* no input raster provided */
     if (rp == NULL) goto end_of_job;
-    if (ptype != 0)              /* we'll determine ptype below */
-        /*invalid output graphic format*/
-        if (ptype < 1 || ptype > 2) goto end_of_job;
     /* --- determine largest (and smallest) value in pixmap --- */
     for (irow = 0; irow < rp->height; irow++)  /* for each row, top-to-bottom */
         for (jcol = 0; jcol < rp->width; jcol++) { /* for each col, left-to-right */
@@ -1705,31 +1696,8 @@ static int type_pbmpgm(raster *rp, int ptype, char *file)
             pixmin = min2(pixmin, pixval);
             pixmax = max2(pixmax, pixval);
         } /* new maximum */
-    ngray = 1 + (pixmax - pixmin);      /* should be 2 for b/w bitmap */
-    if (ptype == 0)              /* caller wants us to set ptype */
-        /* use grayscale if >2 shades */
-        ptype = (ngray >= 3 ? 2 : 1);
     /* --- open output file if necessary --- */
     /*null ptr signals output to stdout*/
-    if (file == NULL) fp = stdout;
-    else if (*file != '\000') {          /* explicit filename provided, so...*/
-        /* file.ext, ptr to last . in fname*/
-        char  fname[512], *pdot = NULL;
-        /* local copy of file name */
-        strncpy(fname, file, 255);
-        /* make sure it's null terminated */
-        fname[255] = '\000';
-        if ((pdot = strrchr(fname, '.')) == NULL) /*no extension on original name*/
-            /* so add extension */
-            strcat(fname, suffix[ptype]);
-        else
-        /* we already have an extension */
-            /* so replace original extension */
-            strcpy(pdot, suffix[ptype]);
-        if ((fp = fopen(fname, mode[ptype]))   /* open output file */
-                /* quit if failed to open */
-                == (FILE *)NULL) goto end_of_job;
-    } /* --- ens-of-if(*file!='\0') --- */
     /* ------------------------------------------------------------
     format and write header
     ------------------------------------------------------------ */
@@ -1754,14 +1722,10 @@ static int type_pbmpgm(raster *rp, int ptype, char *file)
         strcat(outline, cr);
     }       /* followed by cr to end line */
     /* --- write header to file or memory buffer --- */
-    if (fp == NULL)              /* if we have no open file... */
-        /* add header to caller's buffer */
-        strcat(file, outline);
-    else
     /* or if we have an open file... */
-        if (fputs(outline, fp)     /* try writing header to open file */
-                /* return with error if failed */
-                ==   EOF) goto end_of_job;
+    if (fputs(outline, fp)     /* try writing header to open file */
+        /* return with error if failed */
+        ==   EOF) goto end_of_job;
     /* bump output byte count */
     nbytes += strlen(outline);
     /* ------------------------------------------------------------
@@ -1786,14 +1750,10 @@ static int type_pbmpgm(raster *rp, int ptype, char *file)
                     ||   irow >= rp->height) {        /* force writing last line */
                 /* add cr to end current line */
                 strcat(outline, cr);
-                if (fp == NULL)              /* if we have no open file... */
-                    /* add header to caller's buffer */
-                    strcat(file, outline);
-                else
                 /* or if we have an open file... */
-                    if (fputs(outline, fp)     /* try writing header to open file */
-                            /* return with error if failed */
-                            ==   EOF) goto end_of_job;
+                if (fputs(outline, fp)     /* try writing header to open file */
+                        /* return with error if failed */
+                        ==   EOF) goto end_of_job;
                 /* bump output byte count */
                 nbytes += strlen(outline);
                 /* re-initialize line buffer */
@@ -1820,7 +1780,145 @@ end_of_job:
 } /* --- end-of-function type_pbmpgm() --- */
 
 
+/* ==========================================================================
+ * Function:    xbitmap_raster ( rp, fp )
+ * Purpose: Emit a mime xbitmap representing rp, on fp.
+ * --------------------------------------------------------------------------
+ * Arguments:   rp (I)      ptr to raster struct for which a mime
+ *              xbitmap is to be constructed.
+ *      fp (I)      File ptr to output device (defaults to
+ *              stdout if passed as NULL).
+ * --------------------------------------------------------------------------
+ * Returns: ( int )     1 if completed successfully,
+ *              or 0 otherwise (for any error).
+ * --------------------------------------------------------------------------
+ * Notes:
+ * ======================================================================= */
+/* --- entry point --- */
+static int xbitmap_raster(raster *rp, FILE *fp)
+{
+    /* ------------------------------------------------------------
+    Allocations and Declarations
+    ------------------------------------------------------------ */
+    /* dummy title */
+    char    *title = "image";
+    /* dump bitmap as hex bytes */
+    /* ------------------------------------------------------------
+    emit text to display mime xbitmap representation of rp->bitmap image
+    ------------------------------------------------------------ */
+    /* --- first redirect null fp --- */
+    /* default fp to stdout if null */
+    if (fp == (FILE *)NULL) fp = stdout;
+    /* --- emit prologue strings and hex dump of bitmap for mime xbitmap --- */
+    fprintf(fp, "Content-type: image/x-xbitmap\n\n");
+    fprintf(fp, "#define %s_width %d\n#define %s_height %d\n",
+            title, rp->width, title, rp->height);
+    fprintf(fp, "static char %s_bits[] = {\n", title);
+    /* emit hex dump of bitmap bytes */
+    hex_bitmap(rp, fp, 0, 0);
+    /* ending with "};" for C array */
+    fprintf(fp, "};\n");
+    /* ------------------------------------------------------------
+    Back to caller with 1=okay, 0=failed.
+    ------------------------------------------------------------ */
+    fclose(fp);
+    return (1);
+} /* --- end-of-function xbitmap_raster() --- */
 
+struct gif_raster_params {
+    int ncolors;
+    raster *bitmap; /* use 0/1 bitmap image or */
+    intbyte *colormap;  /* anti-aliased color indexes */
+};
+
+/* ==========================================================================
+ * Function:    gif_raster_get_pixel ( int x, int y )
+ * Purpose: callback for GIF_CompressImage() returning the
+ *      pixel at column x, row y
+ * --------------------------------------------------------------------------
+ * Arguments:   x (I)       int containing column=0...width-1
+ *              of desired pixel
+ *      y (I)       int containing row=0...height-1
+ *              of desired pixel
+ * --------------------------------------------------------------------------
+ * Returns: ( int )     0 or 1, if pixel at x,y is off or on
+ * --------------------------------------------------------------------------
+ * Notes:     o
+ * ======================================================================= */
+/* --- entry point --- */
+static int gif_raster_get_pixel(void *_ctx, int x, int y)
+{
+    struct gif_raster_params *ctx = _ctx;
+
+    /* pixel index for x,y-coords*/
+    int ipixel = y * ctx->bitmap->width + x;
+    /* value of pixel */
+    int pixval = 0;
+    if (!ctx->colormap)               /* use bitmap if not anti-aliased */
+        /*pixel = 0 or 1*/
+        pixval = (int)getlongbit(ctx->bitmap->pixmap, ipixel);
+    else
+    /* else use anti-aliased grayscale*/
+        /* colors[] index number */
+        pixval = (int)(ctx->colormap[ipixel]);
+    if (msgfp != NULL && msglevel >= 9999) { /* dump pixel */
+        fprintf(msgfp, "gif_raster_get_pixel> x=%d, y=%d  pixel=%d\n", x, y, pixval);
+        fflush(msgfp);
+    }
+    return pixval;
+} /* --- end-of-function gif_raster_get_pixel() --- */
+
+
+static int gif_raster(int ncolors, raster *bp, intbyte *colormap, intbyte *colors, FILE *fp, void *buffer, int buffer_size)
+{
+    struct gif_raster_params params = { ncolors, bp, colormap };
+    GIFContext *gctx;
+    /* --- initialize gifsave library and colors --- */
+    if (msgfp != NULL && msglevel >= 999) {
+        fprintf(msgfp, "main> calling GIF_Create(*,%d,%d,%d,8)\n",
+                bp->width, bp->height, ncolors);
+        fflush(msgfp);
+    }
+    if ((gctx = GIF_Create(fp, buffer, buffer_size, bp->width, bp->height, ncolors, 8)) == NULL)
+        return 0;
+    /* background white if all 255 */
+    GIF_SetColor(gctx, 0, bgred, bggreen, bgblue);
+    if (ncolors == 2) {               /* just b&w if not anti-aliased */
+        /* foreground black if all 0 */
+        GIF_SetColor(gctx, 1, fgred, fggreen, fgblue);
+        /* and set 2 b&w color indexes */
+        colors[0] = '\000';
+        colors[1] = '\001';
+    } else {
+        int igray;
+        /* set grayscales for anti-aliasing */
+        /* --- anti-aliased, so call GIF_SetColor() for each colors[] --- */
+        for (igray = 1; igray < ncolors; igray++) { /* for colors[] values */
+            /*--- gfrac goes from 0 to 1.0, as igray goes from 0 to ncolors-1 ---*/
+            double gfrac = ((double)colors[igray]) / ((double)colors[ncolors-1]);
+            /* --- r,g,b components go from background to foreground color --- */
+            int red  = iround(((double)bgred)  + gfrac * ((double)(fgred - bgred))),
+                green = iround(((double)bggreen) + gfrac * ((double)(fggreen - bggreen))),
+                blue = iround(((double)bgblue) + gfrac * ((double)(fgblue - bgblue)));
+            /* --- set color index number igray to rgb values gray,gray,gray --- */
+            /*set gray,grayer,...,0=black*/
+            GIF_SetColor(gctx, igray, red, green, blue);
+        } /* --- end-of-for(igray) --- */
+    }        
+    /* --- set gif color#0 (background) transparent --- */
+    if (istransparent)             /* transparent background wanted */
+        /* set transparent background */
+        GIF_SetTransparent(gctx, 0);
+    /*flush debugging output*/
+    if (msgfp != NULL && msglevel >= 9)
+        fflush(msgfp);
+    /* --- emit compressed gif image (to stdout or cache file) --- */
+    /* emit gif */
+    GIF_CompressImage(gctx, 0, 0, -1, -1, gif_raster_get_pixel, &params);
+    /* close file */
+    GIF_Close(gctx);
+    return gctx->gifSize;
+}
 
 /* ==========================================================================
  * Function:    main() driver for mimetex.c
@@ -1888,8 +1986,6 @@ header files and other data
 /* ------------------------------------------------------------
 globals for gif and png callback functions
 ------------------------------------------------------------ */
-static raster *bitmap_raster = NULL; /* use 0/1 bitmap image or */
-static intbyte *colormap_raster = NULL;  /* anti-aliased color indexes */
 
 /* ------------------------------------------------------------
 logging data structure, and default data to be logged
@@ -1920,56 +2016,13 @@ static logdata mimelog[] = {
 }; /* --- end-of-mimelog[] --- */
 
 
-/* ==========================================================================
- * Function:    GetPixel ( int x, int y )
- * Purpose: callback for GIF_CompressImage() returning the
- *      pixel at column x, row y
- * --------------------------------------------------------------------------
- * Arguments:   x (I)       int containing column=0...width-1
- *              of desired pixel
- *      y (I)       int containing row=0...height-1
- *              of desired pixel
- * --------------------------------------------------------------------------
- * Returns: ( int )     0 or 1, if pixel at x,y is off or on
- * --------------------------------------------------------------------------
- * Notes:     o
- * ======================================================================= */
-/* --- entry point --- */
-static int GetPixel(int x, int y)
-{
-    /* pixel index for x,y-coords*/
-    int ipixel = y * bitmap_raster->width + x;
-    /* value of pixel */
-    int pixval = 0;
-    if (!colormap_raster)               /* use bitmap if not anti-aliased */
-        /*pixel = 0 or 1*/
-        pixval = (int)getlongbit(bitmap_raster->pixmap, ipixel);
-    else
-    /* else use anti-aliased grayscale*/
-        /* colors[] index number */
-        pixval = (int)(colormap_raster[ipixel]);
-    if (msgfp != NULL && msglevel >= 9999) { /* dump pixel */
-        fprintf(msgfp, "GetPixel> x=%d, y=%d  pixel=%d\n", x, y, pixval);
-        fflush(msgfp);
-    }
-    return pixval;
-} /* --- end-of-function GetPixel() --- */
-
 /* --- entry point --- */
 int main(int argc, char *argv[], char *envp[])
 {
     /* ------------------------------------------------------------
     Allocations and Declarations
     ------------------------------------------------------------ */
-    int emitcache();
-    int logger();
-    int ismonth();
-    int aacolormap();
-    raster *border_raster();
-    int type_bytemap();
-    int type_pbmpgm();
-    int aalowpass(), aapnm();
-
+    static char *suffix[] = { ".gif", ".pbm", ".pgm", ".xbm" };
     /* --- expression to be emitted --- */
     /* input TeX expression */
     static  char exprbuffer[MAXEXPRSZ+1] = "f(x)=x^2";
@@ -1987,7 +2040,6 @@ int main(int argc, char *argv[], char *envp[])
         isqforce = 0,           /* true to force query emulation */
         isqlogging = 0,         /* true if logging in query mode */
         isformdata = 0,         /* true if input from html form */
-        isinmemory = 1,         /* true to generate image in memory*/
         isdumpimage = 0,        /* true to dump image on stdout */
         isdumpbuffer = 0;       /* true to dump to memory buffer */
     /* --- rasterization --- */
@@ -2026,22 +2078,21 @@ int main(int argc, char *argv[], char *envp[])
     /*max query_string len if no referer*/
     int norefmaxlen = NOREFMAXLEN;
     /* --- gif --- */
-    char *gif_outfile = (char *)NULL;   /* gif output defaults to stdout */
-    char gif_buffer[MAXGIFSZ] = "\000";  /* or gif written in memory buffer */
+    char *outfile = (char *)NULL;
+    char outfilebuf[256];
+    char *pdot;
     char cachefile[256] = "\000";    /* full path and name to cache file*/
     /* max-age is two hours */
     int maxage = 7200;
     /*Vertical-Align:baseline-(height-1)*/
     int valign = (-9999);
-    /* --- pbm/pgm (-g switch) --- */
-    int ispbmpgm = 0;           /* true to write pbm/pgm file */
-    /* entry point, graphic format */
-    int ptype = 0;
-    /* output file defaults to stdout */
-    char *pbm_outfile = (char *)NULL;
+    /* --- image format (-g switch) --- */
+    /* -1=detect by filename 0=gif 1=pbm 2=pgm 3=xbm */
+    int ptype = -1;
     /* --- anti-aliasing --- */
-    intbyte *bytemap_raster = NULL,     /* anti-aliased bitmap */
-            colors[256]; /* grayscale vals in bytemap */
+    intbyte *bytemap_raster = NULL;    /* anti-aliased bitmap */
+    intbyte *colormap_raster = NULL;
+    intbyte colors[256]; /* grayscale vals in bytemap */
     int grayscale = 256; /* 0-255 grayscales in 8-bit bytes */
     int ncolors = 2;        /* #colors (2=b&w) */
     /*patternnumcount[] index diagnostic*/
@@ -2057,7 +2108,6 @@ int main(int argc, char *argv[], char *envp[])
     char    *invalid_referer_msg = msgtable[invmsgnum];
     /*referer isn't host*/
     char    *invalid_referer_match = msgtable[refmsgnum];
-    char    contenttype[2048] = "\000"; /* content-type:, etc buffer */
     /* ------------------------------------------------------------
     initialization
     ------------------------------------------------------------ */
@@ -2078,8 +2128,6 @@ int main(int argc, char *argv[], char *envp[])
     msgfp = stdout;
     /* true to emit mime content-type */
     isemitcontenttype = 1;
-    /* reset content-type:, etc. cache */
-    *contenttype = '\000';
     /* true to inhibit math mode */
     isnomath = 0;
     /* overall security level */
@@ -2096,16 +2144,7 @@ int main(int argc, char *argv[], char *envp[])
     errorstatus = ERRORSTATUS;  /* reset exit/error status */
     /* true if caching images */
     iscaching = ISCACHING;
-    if (iscaching) {             /* images are being cached */
-        /* relative path to cached files */
-        strcpy(cachepath, CACHEPATH);
-        if (*cachepath == '%') {       /* leading % signals cache headers */
-            /* signal caching mime content-type*/
-            strcpy(cachepath, cachepath + 1);
-        }
-    }  /* and squeeze out leading % char */
     /* signal that image not in memory */
-    gifSize = 0;
     /* default foreground colors */
     fgred = (isblackonwhite?255:0);
     fggreen = (isblackonwhite?255:0);
@@ -2222,16 +2261,17 @@ int main(int argc, char *argv[], char *envp[])
                         break;
                     case 'e':
                         isdumpimage++;
-                        gif_outfile = argv[argnum];
+                        outfile = argv[argnum];
                         break;
                     case 'f':
                         isdumpimage++;
                         infilearg = argnum;
                         break;
                     case 'g':
-                        ispbmpgm++;
                         /* -g2 ==> ptype=2 */
                         if (arglen > 1) ptype = atoi(field + 1);
+                        if (ptype < 0 || ptype > sizeof(suffix) / sizeof(*suffix))
+                            ptype = 0;
                         argnum--;
                         break;
                     case 'm':
@@ -2270,6 +2310,35 @@ int main(int argc, char *argv[], char *envp[])
                 /* infile and expression invalid */
                 else nbadargs++;
         } /* --- end-of-while(argc>++argnum) --- */
+
+        if (outfile != NULL) {
+            /* local copy of file name */
+            strncpy(outfilebuf, outfile, sizeof(outfilebuf));
+            /* make sure it's null terminated */
+            outfilebuf[sizeof(outfilebuf) - 1] = '\000';
+            if ((pdot = strrchr(outfilebuf, '.')) == NULL) {
+                /* no extension on original name */
+                /* so add extension */
+                if (ptype < 0)
+                    ptype = 0; /* falls back to the default (gif) */
+                strcat(outfilebuf, suffix[ptype]);
+            } else {
+                if (ptype == -1) {
+                    int i;
+                    for (i = 0; i < sizeof(suffix) / sizeof(*suffix); i++) {
+                        if (!strcmp(pdot, suffix[i]))
+                            ptype = i;
+                    }
+                    if (ptype == -1)
+                        ptype = 0; /* falls back to the default (gif) */
+                }
+            }
+            outfile = outfilebuf;
+        }
+
+        if (ptype == 1 && aaalgorithm)
+            aaalgorithm = 0;
+
         if (msglevel >= 999 && msgfp != NULL) { /* display command-line info */
             fprintf(msgfp, "argc=%d, progname=%s, #args=%d, #badargs=%d\n",
                     argc, progname, nargs, nbadargs);
@@ -2331,17 +2400,6 @@ int main(int argc, char *argv[], char *envp[])
          * ------------------------------------------------------------ */
         /* emulate query string processing */
         if (isqforce) isquery = 1;
-        /* ---
-         * check if emitting pbm/pgm graphic
-         * ------------------------------------------------------------ */
-        if (isgoodargs && ispbmpgm > 0)     /* have a good -g arg */
-            if (1 && gif_outfile != NULL)      /* had an -e switch with file */
-                if (*gif_outfile != '\000') { /* make sure string isn't empty */
-                    pbm_outfile = gif_outfile;   /* use -e switch file for pbm/pgm */
-                    /* reset gif output file */
-                    gif_outfile = (char *)NULL;
-                    /*isdumpimage--;*/
-                }     /* and decrement -e count */
     } /* --- end-of-if(!isquery) --- */
     /* ---
      * check for <form> input
@@ -2554,7 +2612,7 @@ int main(int argc, char *argv[], char *envp[])
     /* ---
      * check if http_referer is to be denied access
      * ------------------------------------------------------------ */
-    if (isquery)                 /* not relevant if "interactive" */
+    if (isquery) { /* not relevant if "interactive" */
         if (!isinvalidreferer) {        /* nor if already invalid referer */
             /* denyreferer index, message# */
             int iref = 0, msgnum = (-999);
@@ -2587,6 +2645,7 @@ int main(int argc, char *argv[], char *envp[])
                 isinvalidreferer = 1;
             }      /* and signal invalid referer */
         } /* --- end-of-if(!isinvalidreferer) --- */
+    }
     /* --- also check maximum query_string length if no http_referer given --- */
     if (isquery) {
         /* not relevant if "interactive" */
@@ -2611,97 +2670,16 @@ int main(int argc, char *argv[], char *envp[])
         }
     }
     /* ---
-     * check for image caching
-     * ------------------------------------------------------------ */
-    if (strstr(expression, "\\counter")  != NULL /* can't cache \counter{} */
-            ||   strstr(expression, "\\input")    != NULL /* can't cache \input{} */
-            ||   strstr(expression, "\\today")    != NULL /* can't cache \today */
-            ||   strstr(expression, "\\calendar") != NULL /* can't cache \calendar */
-            ||   strstr(expression, "\\nocach")   != NULL /* no caching requested */
-            ||   isformdata             /* don't cache user form input */
-       ) {
-        /* so turn caching off */
-        iscaching = 0;
-        maxage = 5;
-    }          /* and set max-age to 5 seconds */
-    if (isquery)                 /* don't cache command-line images */
-        if (iscaching) {            /* image caching enabled */
-            /* --- set up path to cached image file --- */
-            /* md5 hash of expression */
-            char *md5hash = md5str(expression);
-            if (md5hash == NULL)       /* failed for some reason */
-                /* so turn off caching */
-                iscaching = 0;
-            else {
-                /* start with (relative) path */
-                strcpy(cachefile, cachepath);
-                /* add md5 hash of expression */
-                strcat(cachefile, md5hash);
-                /* finish with .gif extension */
-                strcat(cachefile, ".gif");
-                /* signal GIF_Create() to cache */
-                gif_outfile = cachefile;
-                /* --- emit cached image if it already exists --- */
-                if (emitcache(cachefile, maxage, valign, 0) > 0) /* cached image emitted */
-                    /* so nothing else to do */
-                    goto end_of_job;
-                /* --- log caching request --- */
-                if (msglevel >= 1             /* check if logging */
-                        /*&&   seclevel <= 5*/)      /* and if logging permitted */
-                    if (cachelog != NULL)        /* if a logfile is given */
-                        if (*cachelog != '\000') {      /*and if it's not an empty string*/
-                            char filename[256];     /* construct cachepath/cachelog */
-                            /* fopen(filename) */
-                            FILE *filefp = NULL;
-                            /* start with (relative) path */
-                            strcpy(filename, cachepath);
-                            /* add cache log filename */
-                            strcat(filename, cachelog);
-                            if ((filefp = fopen(filename, "a")) /* open cache logfile for append */
-                                    !=   NULL) {        /* ignore logging if can't open */
-                                /* set true if http_referer logged */
-                                int isreflogged = 0;
-                                fprintf(filefp, "%s                 %s\n", /* timestamp, md5 file */
-                                        /*skip path*/
-                                        timestamp(tzdelta, 0), cachefile + strlen(cachepath));
-                                /* expression in filename */
-                                fprintf(filefp, "%s\n", expression);
-                                if (http_referer != NULL)     /* show referer if we have one */
-                                    if (*http_referer != '\000') {    /* and if not an empty string*/
-                                        /* #chars on line in log file*/
-                                        int loglen = strlen(dashes);
-                                        /* line to be printed */
-                                        char *refp = http_referer;
-                                        /* signal http_referer logged*/
-                                        isreflogged = 1;
-                                        while (1) {                /* printed in parts if needed*/
-                                            /* print a part */
-                                            fprintf(filefp, "%.*s\n", loglen, refp);
-                                            /* no more parts */
-                                            if (strlen(refp) <= loglen) break;
-                                            refp += loglen;
-                                        }
-                                    }         /* bump ptr to next part */
-                                if (!isreflogged)               /* http_referer not logged */
-                                    /* so log dummy referer line */
-                                    fprintf(filefp, "http://none\n");
-                                /* separator line */
-                                fprintf(filefp, "%s\n", dashes);
-                                fclose(filefp);
-                            }             /* close logfile immediately */
-                        } /* --- end-of-if(cachelog!=NULL) --- */
-            } /* --- end-of-if/else(md5hash==NULL) --- */
-        } /* --- end-of-if(iscaching) --- */
-    /* ---
      * emit copyright, gnu/gpl notice (if "interactive")
      * ------------------------------------------------------------ */
-    if (!isdumpimage)            /* don't mix ascii with image dump */
+    if (!isdumpimage) { /* don't mix ascii with image dump */
         if ((!isquery || isqlogging) && msgfp != NULL) { /* called from command line */
             /* display copyright */
             fprintf(msgfp, "%s\n%s\n", copyright1, copyright2);
             /*revision date*/
             fprintf(msgfp, "Most recent revision: %s\n", REVISIONDATE);
         } /* --- end-of-if(!isquery...) --- */
+    }
     /* ------------------------------------------------------------
     rasterize expression and put a border around it
     ------------------------------------------------------------ */
@@ -2752,14 +2730,12 @@ int main(int argc, char *argv[], char *envp[])
     /* image width multiple of 8 bits */
     bp = border_raster(sp->image, 0, 0, 0, 1);
     /* global copy for gif,png output */
-    sp->image = bitmap_raster = bp;
+    sp->image = bp;
     if (sp != NULL && bp != NULL) {      /* have raster */
         /* #pixels for Vertical-Align: */
         valign = sp->baseline - (bp->height - 1);
         if (abs(valign) > 255) valign = (-9999);
     } /* sanity check */
-    if (ispbmpgm && ptype < 2)       /* -g switch or -g1 switch */
-        type_pbmpgm(bp, ptype, pbm_outfile);  /* emit b/w pbm file */
     /* ------------------------------------------------------------
     generate anti-aliased bytemap from (bordered) bitmap
     ------------------------------------------------------------ */
@@ -2858,22 +2834,14 @@ int main(int argc, char *argv[], char *envp[])
                     aaalgorithm = 0;
                     ncolors = 2;
                 }        /* and reset for black&white */
-                if (ispbmpgm && ptype > 1) { /* -g2 switch  */
-                    /*construct arg for write_pbmpgm()*/
-                    raster pbm_raster;
-                    pbm_raster.width  = bp->width;
-                    pbm_raster.height = bp->height;
-                    pbm_raster.pixsz  = 8;
-                    pbm_raster.pixmap = (pixbyte *)bytemap_raster;
-                    type_pbmpgm(&pbm_raster, ptype, pbm_outfile);
-                } /*write grayscale file*/
             }
         }
     } /* --- end-of-if(isaa) --- */
     /* ------------------------------------------------------------
     display results on msgfp if called from command line (usually for testing)
     ------------------------------------------------------------ */
-    if ((!isquery || isqlogging) || msglevel >= 99)  /*command line or debuging*/
+    if ((!isquery || isqlogging) || msglevel >= 99) {
+        /*command line or debuging*/
         if (!isdumpimage) {         /* don't mix ascii with image dump */
             /* ---
              * display ascii image of rasterize()'s rasterized bitmap
@@ -2907,155 +2875,138 @@ int main(int argc, char *argv[], char *envp[])
                 }
             } /* --- end-of-if(isaa) --- */
         } /* --- end-of-if(!isquery||msglevel>=9) --- */
+    }
     /* ------------------------------------------------------------
     emit xbitmap or gif image, and exit
     ------------------------------------------------------------ */
-    if (isquery               /* called from browser (usual) */
-            || (isdumpimage && !ispbmpgm)       /* or to emit gif dump of image */
-            ||    msglevel >= 99) {         /* or for debugging */
-        /* grayscale index */
-        int  igray = 0;
-        /* ------------------------------------------------------------
-        emit GIF image
-        ------------------------------------------------------------ */
-        /* --- don't use memory buffer if outout file given --- */
-        /* reset memory buffer flag */
-        if (gif_outfile != NULL) isinmemory = 0;
-        /* --- construct contenttype[] buffer containing mime headers --- */
-        if (1) {               /* always construct buffer */
-            sprintf(contenttype, "Cache-Control: max-age=%d\n", maxage);
-            /*sprintf(contenttype+strlen(contenttype),
-               "Expires: Fri, 31 Oct 2003 23:59:59 GMT\n" );*/
-            /*sprintf(contenttype+strlen(contenttype),
-               "Last-Modified: Wed, 15 Oct 2003 01:01:01 GMT\n");*/
-            if (abs(valign) < 999)       /* have Vertical-Align: header info*/
-                sprintf(contenttype + strlen(contenttype),
-                        "Vertical-Align: %d\n", valign);
-            sprintf(contenttype + strlen(contenttype),
-                    "Content-type: image/gif\n\n");
-        }
-        /* --- emit mime content-type line --- */
-        if (isemitcontenttype      /* content-type lines wanted */
-                &&   !isdumpimage         /* don't mix ascii with image dump */
-                &&   !isinmemory          /* done below if in memory */
-                &&   !iscaching) {        /* done by emitcache() if caching */
-            /* emit content-type: header buffer*/
-            fputs(contenttype, stdout);
-        }
-        /* --- write output to memory buffer, possibly for testing --- */
-        if (isinmemory             /* want gif written to memory */
-                ||   isdumpbuffer)            /*or dump memory buffer for testing*/
-            if (gif_outfile == NULL) {        /* and don't already have a file */
-                /* init buffer as empty string */
-                *gif_buffer = '\000';
-                /* zero out buffer */
-                memset(gif_buffer, 0, MAXGIFSZ);
-                /* and point outfile to buffer */
-                gif_outfile = gif_buffer;
-                if (isdumpbuffer)          /* buffer dump test requested */
-                    isdumpbuffer = 999;
-            }       /* so signal dumping to buffer */
-        /* --- initialize gifsave library and colors --- */
-        if (msgfp != NULL && msglevel >= 999) {
-            fprintf(msgfp, "main> calling GIF_Create(*,%d,%d,%d,8)\n",
-                    bp->width, bp->height, ncolors);
-            fflush(msgfp);
-        }
-        while (1) {        /* init gifsave lib, and retry if caching fails */
-            int status = GIF_Create(gif_outfile, bp->width, bp->height, ncolors, 8);
-            /* continue if succeeded */
-            if (status == 0) break;
-            /* quit if failed */
-            if (iscaching == 0) goto end_of_job;
-            /* retry without cache file */
-            iscaching = 0;
-            /* reset isdumpbuffer signal */
-            isdumpbuffer = 0;
-            /* force in-memory image generation*/
-            if (isquery) isinmemory = 1;
-            if (isinmemory) {          /* using memory buffer */
-                /* emit images to memory buffer */
-                gif_outfile = gif_buffer;
-                *gif_outfile = '\000';
-            }    /* empty string signals buffer */
-            else {                /* or */
-                /* emit images to stdout */
-                gif_outfile = (char *)NULL;
-                if (isemitcontenttype) {     /* content-type lines wanted */
-                    fprintf(stdout, "Cache-Control: max-age=%d\n", maxage);
-                    fprintf(stdout, "Content-type: image/gif\n\n");
+
+    if (!isquery) {
+        if (outfile) {
+            FILE *fp = fopen(outfile, "wb");
+            if (fp != NULL) {
+                if (ptype == 0) {
+                    gif_raster(ncolors, bp, colormap_raster, colors, fp, NULL, 0);
+                } else if (ptype == 1) {
+                    if (ncolors == 2)
+                        type_pbmpgm(bp, 1, fp);  /* emit b/w pbm file */
+                    else
+                        fprintf(msgfp, "-g1 (pbm) doesn't allow grayscaled images\n");
+                } else if (ptype == 2) {
+                    /*construct arg for write_pbmpgm()*/
+                    raster pbm_raster;
+                    pbm_raster.width  = bp->width;
+                    pbm_raster.height = bp->height;
+                    pbm_raster.pixsz  = 8;
+                    pbm_raster.pixmap = (pixbyte *)bytemap_raster;
+                    type_pbmpgm(&pbm_raster, 2, fp);
+                } else if (ptype == 3) {
+                    xbitmap_raster(bp, fp);
                 }
             }
-        } /* --- end-of-while(1) --- */
-        /* background white if all 255 */
-        GIF_SetColor(0, bgred, bggreen, bgblue);
-        if (!aaalgorithm) {               /* just b&w if not anti-aliased */
-            /* foreground black if all 0 */
-            GIF_SetColor(1, fgred, fggreen, fgblue);
-            /* and set 2 b&w color indexes */
-            colors[0] = '\000';
-            colors[1] = '\001';
-        } else {
-            /* set grayscales for anti-aliasing */
-            /* --- anti-aliased, so call GIF_SetColor() for each colors[] --- */
-            for (igray = 1; igray < ncolors; igray++) { /* for colors[] values */
-                /*--- gfrac goes from 0 to 1.0, as igray goes from 0 to ncolors-1 ---*/
-                double gfrac = ((double)colors[igray]) / ((double)colors[ncolors-1]);
-                /* --- r,g,b components go from background to foreground color --- */
-                int red  = iround(((double)bgred)  + gfrac * ((double)(fgred - bgred))),
-                    green = iround(((double)bggreen) + gfrac * ((double)(fggreen - bggreen))),
-                    blue = iround(((double)bgblue) + gfrac * ((double)(fgblue - bgblue)));
-                /* --- set color index number igray to rgb values gray,gray,gray --- */
-                /*set gray,grayer,...,0=black*/
-                GIF_SetColor(igray, red, green, blue);
-            } /* --- end-of-for(igray) --- */
-        }        
-        /* --- set gif color#0 (background) transparent --- */
-        if (istransparent)             /* transparent background wanted */
-            /* set transparent background */
-            GIF_SetTransparent(0);
-        /*flush debugging output*/
-        if (msgfp != NULL && msglevel >= 9) fflush(msgfp);
-        /* --- emit compressed gif image (to stdout or cache file) --- */
-        /* emit gif */
-        GIF_CompressImage(0, 0, -1, -1, GetPixel);
-        /* close file */
-        GIF_Close();
-        if (msgfp != NULL && msglevel >= 9) {
-            fprintf(msgfp, "main> created gifSize=%d\n", gifSize);
-            fflush(msgfp);
         }
-        /* --- may need to emit image from cached file or from memory --- */
-        if (isquery                /* have an actual query string */
-                ||   isdumpimage          /* or dumping image */
-                ||   msglevel >= 99) {        /* or debugging */
-            /* no headers if dumping image */
-            int maxage2 = (isdumpimage ? (-1) : maxage);
+    } else {
+        /* ---
+         * check for image caching
+         * ------------------------------------------------------------ */
+        if (strstr(expression, "\\counter")  != NULL /* can't cache \counter{} */
+                ||   strstr(expression, "\\input")    != NULL /* can't cache \input{} */
+                ||   strstr(expression, "\\today")    != NULL /* can't cache \today */
+                ||   strstr(expression, "\\calendar") != NULL /* can't cache \calendar */
+                ||   strstr(expression, "\\nocach")   != NULL /* no caching requested */
+                ||   isformdata             /* don't cache user form input */
+           ) {
+            /* so turn caching off */
+            iscaching = 0;
+            maxage = 5;
+        }          /* and set max-age to 5 seconds */
+        if (iscaching) {            /* image caching enabled */
+            /* --- set up path to cached image file --- */
+            /* md5 hash of expression */
+            /* relative path to cached files */
+            char *md5hash = md5str(expression);
+            if (md5hash == NULL)       /* failed for some reason */
+                /* so turn off caching */
+                iscaching = 0;
+            else {
+                /* start with (relative) path */
+                strcpy(cachefile, cachepath);
+                /* add md5 hash of expression */
+                strcat(cachefile, md5hash);
+                /* finish with .gif extension */
+                strcat(cachefile, ".gif");
+                /* --- emit cached image if it already exists --- */
+                if (emitcache(cachefile, maxage, valign, 0) > 0) /* cached image emitted */
+                    /* so nothing else to do */
+                    goto end_of_job;
+                /* --- log caching request --- */
+                if (msglevel >= 1             /* check if logging */
+                        /*&&   seclevel <= 5*/)      /* and if logging permitted */
+                    if (cachelog != NULL)        /* if a logfile is given */
+                        if (*cachelog != '\000') {      /*and if it's not an empty string*/
+                            char filename[256];     /* construct cachepath/cachelog */
+                            /* fopen(filename) */
+                            FILE *filefp = NULL;
+                            /* start with (relative) path */
+                            strcpy(filename, cachepath);
+                            /* add cache log filename */
+                            strcat(filename, cachelog);
+                            if ((filefp = fopen(filename, "a")) /* open cache logfile for append */
+                                    !=   NULL) {        /* ignore logging if can't open */
+                                /* set true if http_referer logged */
+                                int isreflogged = 0;
+                                fprintf(filefp, "%s                 %s\n", /* timestamp, md5 file */
+                                        /*skip path*/
+                                        timestamp(tzdelta, 0), cachefile + strlen(cachepath));
+                                /* expression in filename */
+                                fprintf(filefp, "%s\n", expression);
+                                if (http_referer != NULL)     /* show referer if we have one */
+                                    if (*http_referer != '\000') {    /* and if not an empty string*/
+                                        /* #chars on line in log file*/
+                                        int loglen = strlen(dashes);
+                                        /* line to be printed */
+                                        char *refp = http_referer;
+                                        /* signal http_referer logged*/
+                                        isreflogged = 1;
+                                        while (1) {                /* printed in parts if needed*/
+                                            /* print a part */
+                                            fprintf(filefp, "%.*s\n", loglen, refp);
+                                            /* no more parts */
+                                            if (strlen(refp) <= loglen) break;
+                                            refp += loglen;
+                                        }
+                                    }         /* bump ptr to next part */
+                                if (!isreflogged)               /* http_referer not logged */
+                                    /* so log dummy referer line */
+                                    fprintf(filefp, "http://none\n");
+                                /* separator line */
+                                fprintf(filefp, "%s\n", dashes);
+                                fclose(filefp);
+                            }             /* close logfile immediately */
+                        } /* --- end-of-if(cachelog!=NULL) --- */
+            } /* --- end-of-if/else(md5hash==NULL) --- */
+        } /* --- end-of-if(iscaching) --- */
+
+        {
+            int gifSize;
+            char gif_buffer[MAXGIFSZ] = "\000";  /* or gif written in memory buffer */
+            FILE *fp = iscaching ? fopen(cachefile, "wb"): NULL;
+            if (fp == NULL)
+                gifSize = gif_raster(ncolors, bp, colormap_raster, colors, NULL, gif_buffer, sizeof(gif_buffer));
+            else
+                gif_raster(ncolors, bp, colormap_raster, colors, fp, NULL, 0);
+            /* --- may need to emit image from cached file or from memory --- */
             if (iscaching)            /* caching enabled */
                 /*emit cached image (hopefully)*/
-                emitcache(cachefile, maxage2, valign, 0);
-            else if (isinmemory)          /* or emit image from memory buffer*/
-                emitcache(gif_buffer, maxage2, valign, 1);
-        } /*emitted from memory buffer*/
-        /* --- for testing, may need to write image buffer to file --- */
-        if (isdumpbuffer > 99)         /* gif image in memory buffer */
-            if (gifSize > 0) {            /* and it's not an empty buffer */
-                /* dump to mimetex.gif */
-                FILE *dumpfp = fopen("mimetex.gif", "wb");
-                if (dumpfp != NULL) {      /* file opened successfully */
-                    /*write*/
-                    fwrite(gif_buffer, sizeof(unsigned char), gifSize, dumpfp);
-                    fclose(dumpfp);
-                }     /* and close file */
-            } /* --- end-of-if(isdumpbuffer>99) --- */
+                emitcache(cachefile, maxage, valign, 0);
+            else          /* or emit image from memory buffer*/
+                emitcache(gif_buffer, maxage, valign, gifSize);
+        }
     } /* --- end-of-if(isquery) --- */
     /* --- exit --- */
 end_of_job:
     if (bytemap_raster != NULL) free(bytemap_raster);
     /*and colormap_raster*/
     if (colormap_raster != NULL)free(colormap_raster);
-    /* free malloced buffer */
-    if (0 && gif_buffer != NULL) free(gif_buffer);
     /* and free expression */
     if (1 && sp != NULL) delete_subraster(sp);
     if (msgfp != NULL          /* have message/log file open */
@@ -3283,13 +3234,11 @@ int logger(FILE *fp, int msglevel, char *message, logdata *logvars)
  * Notes:     o
  * ======================================================================= */
 /* --- entry point --- */
-int emitcache(char *cachefile, int maxage, int valign, int isbuffer)
+int emitcache(char *cachefile, int maxage, int valign, int nbytes)
 {
     /* ------------------------------------------------------------
     Allocations and Declarations
     ------------------------------------------------------------ */
-    /* read cache file */
-    int nbytes = gifSize, readcachefile();
     /* emit cachefile to stdout */
     FILE    *emitptr = stdout;
     /* bytes from cachefile */
@@ -3306,7 +3255,7 @@ int emitcache(char *cachefile, int maxage, int valign, int isbuffer)
         /* so return 0 bytes to caller */
         goto end_of_job;
     /* --- read the file if necessary --- */
-    if (isbuffer) {              /* cachefile is buffer */
+    if (nbytes > 0) {              /* cachefile is buffer */
         /* so reset buffer pointer */
         buffptr = (unsigned char *)cachefile;
     }

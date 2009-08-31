@@ -16,47 +16,8 @@
 
 #include <stdlib.h>
 #include <stdio.h>
-/* #include <unistd.h> */	/* (added by j.forkosh) to get STDOUT_FILENO*/
-#include <string.h>		/* " */
-/* --- windows-specific header info --- */
-#ifndef WINDOWS			/* -DWINDOWS not supplied by user */
-  #if defined(_WINDOWS) || defined(_WIN32) || defined(WIN32) \
-  ||  defined(DJGPP)		/* try to recognize windows compilers */ \
-  ||  defined(_USRDLL)		/* must be WINDOWS if compiling for DLL */
-    #define WINDOWS		/* signal windows */
-  #endif
-#endif
-#ifdef WINDOWS			/* " if filename=NULL passed to GIF_Create()*/
-  #include <fcntl.h>		/* " OutFile=stdout used.  But Windows opens*/
-  #include <io.h>		/* " stdout in char mode, and precedes every*/
-				/* " 0x0A with spurious 0x0D. */
-  #if defined(_O_BINARY) && !defined(O_BINARY)  /* only have _O_BINARY */
-    #define O_BINARY _O_BINARY	/* make O_BINARY available, etc... */
-    #define setmode  _setmode
-    #define fileno   _fileno
-  #endif
-  #if defined(_O_BINARY) || defined(O_BINARY)  /* setmode() now available */
-    #define HAVE_SETMODE	/* so we'll use setmode() */
-  #endif
-#endif
-
-/* #include "gifsave.h" */	/* (j.forkosh) explcitly include header */
-enum GIF_Code {
-    GIF_OK = 0,
-    GIF_ERRCREATE,
-    GIF_ERRWRITE,
-    GIF_OUTMEM
-};
-
-int  GIF_Create(const char *filename, int width, int height,
-		int numcolors, int colorres);
-void GIF_SetColor(int colornum, int red, int green, int blue);
-void GIF_SetTransparent(int colornum);	/* (added by j.forkosh) */
-int  GIF_CompressImage(int left, int top, int width, int height,
-		       int (*getpixel)(int x, int y));
-int  GIF_Close(void);
-/* --- end-of-header gifsave.h --- */
-
+#include <string.h>
+#include "gifsave.h"
 
 /**************************************************************************
  *                                                                        *
@@ -64,24 +25,7 @@ int  GIF_Close(void);
  *                                                                        *
  **************************************************************************/
 
-typedef unsigned Word;          /* at least two bytes (16 bits) */
-typedef unsigned char Byte;     /* exactly one byte (8 bits) */
-
 /* used by IO-routines */
-static FILE *OutFile = NULL;    /* file to write to */
-static Byte *OutBuffer = NULL;	/* (added by j.forkosh) */
-static int isCloseOutFile = 0;	/* " */
-#if !defined(MAXGIFSZ)		/* " */
-  #define MAXGIFSZ 131072	/* " max #bytes comprising gif image */
-#endif				/* " */
-int gifSize = 0;		/* " #bytes comprising gif */
-int maxgifSize = MAXGIFSZ;	/* " max #bytes written to OutBuffer */
-
-/* used when writing to a file bitwise */
-static Byte Buffer[256];        /* there must be one more than `needed' */
-static int  Index,              /* current byte in buffer */
-            BitsLeft;           /* bits left to fill in current byte. These
-                                 * are right-justified */
 
 /* used by routines maintaining an LZW string table */
 #define RES_CODES 2
@@ -97,10 +41,9 @@ static int  Index,              /* current byte in buffer */
 
 #define HASH(index, lastbyte) (((lastbyte << 8) ^ index) % HASHSIZE)
 
-static Byte *StrChr = NULL;
-static Word *StrNxt = NULL,
-            *StrHsh = NULL,
-            NumStrings;
+#if !defined(MAXGIFSZ)		/* " */
+  #define MAXGIFSZ 131072	/* " max #bytes comprising gif image */
+#endif				/* " */
 
 /* used in the main routines */
 typedef struct {
@@ -127,20 +70,15 @@ typedef struct {
          LocalColorTableFlag : 1;
 } ImageDescriptor;
 
-static int  BitsPrPrimColor,    /* bits pr primary color */
-            NumColors;          /* number of colors in color table */
-static int  TransparentColorIndex=(-1); /* (added by j.forkosh) */
-static Byte *ColorTable = NULL;
-static Word ScreenHeight,
-            ScreenWidth,
-            ImageHeight,
-            ImageWidth,
-            ImageLeft,
-            ImageTop,
-            RelPixX, RelPixY;   /* used by InputByte() -function */
-static int  (*GetPixel)(int x, int y);
-
-
+typedef struct {
+    Word ImageHeight,
+         ImageWidth,
+         ImageLeft,
+         ImageTop,
+         RelPixX, RelPixY;   /* used by InputByte() -function */
+    int(*GetPixel)(void *ctx, int x, int y);
+    void *getPixelCtx;
+} GIFCreationContext;
 
 /**************************************************************************
  *                                                                        *
@@ -151,58 +89,6 @@ static int  (*GetPixel)(int x, int y);
 /*========================================================================*
  =                         Routines to do file IO                         =
  *========================================================================*/
-
-/*-------------------------------------------------------------------------
- *
- *  NAME          Create
- *
- *  DESCRIPTION   Creates a new file, and enables referencing using the
- *                global variable OutFile. This variable is only used
- *                by these IO-functions, making it relatively simple to
- *                rewrite file IO.
- *
- *  INPUT         filename
- *                        name of file to create,
- *                        or NULL for stdout,
- *                        or if *filename='\000' then it's the address of
- *                           a memory buffer to which gif will be written
- *
- *  RETURNS       GIF_OK       - OK
- *                GIF_ERRWRITE - Error opening the file
- */
-static int
-Create(const char *filename)
-{
-    OutBuffer = NULL;				/* (added by j.forkosh) */
-    isCloseOutFile = 0;				/* " */
-    gifSize = 0;				/* " */
-    if ( filename == NULL )			/* " */
-      {	OutFile = stdout;			/* " */
-	/*OutFile = fdopen(STDOUT_FILENO,"wb");*/ /* " doesn't work, */
-	#ifdef WINDOWS				/* "   so instead... */
-	  #ifdef HAVE_SETMODE			/* "   try to use setmode()*/
-	    if ( setmode ( fileno (stdout), O_BINARY) /* to  set stdout */
-	    == -1 ) ; /* handle error */	/* " to binary mode */
-	  #else					/* " setmode not available */
-	    #if 1				/* " */
-	      freopen ("CON", "wb", stdout);	/* " freopen stdout binary */
-	    #else				/* " */
-	      stdout = fdopen (STDOUT_FILENO, "wb"); /*fdopen stdout binary*/
-	    #endif				/* " */
-	  #endif				/* " */
-	#endif					/* " */
-      }						/* " */
-    else					/* " */
-      if ( *filename != '\000' )		/* " */
-	{ if ((OutFile = fopen(filename, "wb")) == NULL)
-	    return GIF_ERRCREATE;
-	  isCloseOutFile = 1;			/* (added by j.forkosh) */
-    }
-      else					/* " */
-	OutBuffer = (Byte *)filename;		/* " */
-    return GIF_OK;
-}
-
 
 
 /*-------------------------------------------------------------------------
@@ -218,15 +104,15 @@ Create(const char *filename)
  *                GIF_ERRWRITE - Error writing to the file
  */
 static int
-Write(const void *buf, unsigned len)
+Write(GIFContext *ctx, const void *buf, unsigned len)
 {
-    if ( OutBuffer == NULL )			/* (added by j.forkosh) */
-      {	if (fwrite(buf, sizeof(Byte), len, OutFile) < len)
+    if ( ctx->OutBuffer == NULL )			/* (added by j.forkosh) */
+      {	if (fwrite(buf, sizeof(Byte), len, ctx->OutFile) < len)
 	  return GIF_ERRWRITE; }
     else					/* (added by j.forkosh) */
-      {	if ( gifSize+len <= maxgifSize )	/* " */
-	  memcpy(OutBuffer+gifSize,buf,len); }	/* " */
-    gifSize += len;				/* " */
+      {	if ( ctx->gifSize + len <= ctx->maxgifSize )	/* " */
+	  memcpy(ctx->OutBuffer + ctx->gifSize, buf, len); }	/* " */
+    ctx->gifSize += len;				/* " */
     return GIF_OK;
 }
 
@@ -244,15 +130,15 @@ Write(const void *buf, unsigned len)
  *                GIF_ERRWRITE - Error writing to the file
  */
 static int
-WriteByte(Byte b)
+WriteByte(GIFContext *ctx, Byte b)
 {
-    if ( OutBuffer == NULL )			/* (added by j.forkosh) */
-      {	if (putc(b, OutFile) == EOF)
+    if ( ctx->OutBuffer == NULL )			/* (added by j.forkosh) */
+      {	if (putc(b, ctx->OutFile) == EOF)
 	  return GIF_ERRWRITE; }
     else					/* (added by j.forkosh) */
-      {	if ( gifSize < maxgifSize )		/* " */
-	  OutBuffer[gifSize] = b; }		/* " */
-    gifSize++;					/* " */
+      {	if ( ctx->gifSize < ctx->maxgifSize )		/* " */
+	  ctx->OutBuffer[ctx->gifSize] = b; }		/* " */
+    ctx->gifSize++;					/* " */
     return GIF_OK;
 }
 
@@ -271,18 +157,18 @@ WriteByte(Byte b)
  *                GIF_ERRWRITE - Error writing to the file
  */
 static int
-WriteWord(Word w)
+WriteWord(GIFContext *ctx, Word w)
 {
-    if ( OutBuffer == NULL )			/* (added by j.forkosh) */
-      {	if (putc(w & 0xFF, OutFile) == EOF)
+    if ( ctx->OutBuffer == NULL )			/* (added by j.forkosh) */
+      {	if (putc(w & 0xFF, ctx->OutFile) == EOF)
 	  return GIF_ERRWRITE;
-	if (putc((w >> 8), OutFile) == EOF)
+	if (putc((w >> 8), ctx->OutFile) == EOF)
 	  return GIF_ERRWRITE; }
     else					/* (added by j.forkosh) */
-      if ( gifSize+1 < maxgifSize )		/* " */
-	{ OutBuffer[gifSize] = (Byte)(w & 0xFF);  /* " */
-	  OutBuffer[gifSize+1] = (Byte)(w >> 8); }  /* " */
-    gifSize += 2;				/* " */
+      if ( ctx->gifSize+1 < ctx->maxgifSize )		/* " */
+	{ ctx->OutBuffer[ctx->gifSize] = (Byte)(w & 0xFF);  /* " */
+	  ctx->OutBuffer[ctx->gifSize+1] = (Byte)(w >> 8); }  /* " */
+    ctx->gifSize += 2;				/* " */
     return GIF_OK;
 }
 
@@ -295,12 +181,12 @@ WriteWord(Word w)
  *  DESCRIPTION   Close current OutFile.
  */
 static void
-Close(void)
+Close(GIFContext *ctx)
 {
-    if ( isCloseOutFile )			/* (added by j.forkosh) */
-      fclose(OutFile);
-    OutBuffer = NULL;				/* (added by j.forkosh) */
-    isCloseOutFile = 0;				/* " */
+    if ( ctx->OutFile )			/* (added by j.forkosh) */
+      fclose(ctx->OutFile);
+    ctx->OutBuffer = NULL;				/* (added by j.forkosh) */
+    ctx->OutFile = NULL;				/* " */
 }
 
 
@@ -321,10 +207,10 @@ Close(void)
  *                  the current OutFile using the I/O-routines above.
  */
 static void
-InitBitFile(void)
+InitBitFile(GIFContext *ctx)
 {
-    Buffer[Index = 0] = 0;
-    BitsLeft = 8;
+    ctx->Buffer[ctx->Index = 0] = 0;
+    ctx->BitsLeft = 8;
 }
 
 
@@ -338,23 +224,23 @@ InitBitFile(void)
  *  RETURNS       0 - OK, -1 - error
  */
 static int
-ResetOutBitFile(void)
+ResetOutBitFile(GIFContext *ctx)
 {
     Byte numbytes;
 
     /* how much is in the buffer? */
-    numbytes = Index + (BitsLeft == 8 ? 0 : 1);
+    numbytes = ctx->Index + (ctx->BitsLeft == 8 ? 0 : 1);
 
     /* write whatever is in the buffer to the file */
     if (numbytes) {
-        if (WriteByte(numbytes) != GIF_OK)
+        if (WriteByte(ctx, numbytes) != GIF_OK)
             return -1;
 
-        if (Write(Buffer, numbytes) != GIF_OK)
+        if (Write(ctx, ctx->Buffer, numbytes) != GIF_OK)
             return -1;
 
-        Buffer[Index = 0] = 0;
-        BitsLeft = 8;
+        ctx->Buffer[ctx->Index = 0] = 0;
+        ctx->BitsLeft = 8;
     }
     return 0;
 }
@@ -374,38 +260,38 @@ ResetOutBitFile(void)
  *
  */
 static int
-WriteBits(int bits, int numbits)
+WriteBits(GIFContext *ctx, int bits, int numbits)
 {
     int  bitswritten = 0;
     Byte numbytes = 255;
 
     do {
         /* if the buffer is full, write it */
-        if ((Index == 254 && !BitsLeft) || Index > 254) {
-            if (WriteByte(numbytes) != GIF_OK)
+        if ((ctx->Index == 254 && !ctx->BitsLeft) || ctx->Index > 254) {
+            if (WriteByte(ctx, numbytes) != GIF_OK)
                 return -1;
 
-            if (Write(Buffer, numbytes) != GIF_OK)
+            if (Write(ctx, ctx->Buffer, numbytes) != GIF_OK)
                 return -1;
 
-            Buffer[Index = 0] = 0;
-            BitsLeft = 8;
+            ctx->Buffer[ctx->Index = 0] = 0;
+            ctx->BitsLeft = 8;
         }
 
         /* now take care of the two specialcases */
-        if (numbits <= BitsLeft) {
-            Buffer[Index] |= (bits & ((1 << numbits) - 1)) << (8 - BitsLeft);
+        if (numbits <= ctx->BitsLeft) {
+            ctx->Buffer[ctx->Index] |= (bits & ((1 << numbits) - 1)) << (8 - ctx->BitsLeft);
             bitswritten += numbits;
-            BitsLeft -= numbits;
+            ctx->BitsLeft -= numbits;
             numbits = 0;
         } else {
-            Buffer[Index] |= (bits & ((1 << BitsLeft) - 1)) << (8 - BitsLeft);
-            bitswritten += BitsLeft;
-            bits >>= BitsLeft;
-            numbits -= BitsLeft;
+            ctx->Buffer[ctx->Index] |= (bits & ((1 << ctx->BitsLeft) - 1)) << (8 - ctx->BitsLeft);
+            bitswritten += ctx->BitsLeft;
+            bits >>= ctx->BitsLeft;
+            numbits -= ctx->BitsLeft;
 
-            Buffer[++Index] = 0;
-            BitsLeft = 8;
+            ctx->Buffer[++ctx->Index] = 0;
+            ctx->BitsLeft = 8;
         }
     } while (numbits);
 
@@ -425,19 +311,19 @@ WriteBits(int bits, int numbits)
  *  DESCRIPTION   Free arrays used in string table routines
  */
 static void
-FreeStrtab(void)
+FreeStrtab(GIFContext *ctx)
 {
-    if (StrHsh) {
-        free(StrHsh);
-        StrHsh = NULL;
+    if (ctx->StrHsh) {
+        free(ctx->StrHsh);
+        ctx->StrHsh = NULL;
     }
-    if (StrNxt) {
-        free(StrNxt);
-        StrNxt = NULL;
+    if (ctx->StrNxt) {
+        free(ctx->StrNxt);
+        ctx->StrNxt = NULL;
     }
-    if (StrChr) {
-        free(StrChr);
-        StrChr = NULL;
+    if (ctx->StrChr) {
+        free(ctx->StrChr);
+        ctx->StrChr = NULL;
     }
 }
 
@@ -453,21 +339,21 @@ FreeStrtab(void)
  *                GIF_OUTMEM - Out of memory
  */
 static int
-AllocStrtab(void)
+AllocStrtab(GIFContext *ctx)
 {
     /* just in case */
-    FreeStrtab();
+    FreeStrtab(ctx);
 
-    if ((StrChr = (Byte *) malloc(MAXSTR * sizeof(Byte))) == 0) {
-        FreeStrtab();
+    if ((ctx->StrChr = (Byte *) malloc(MAXSTR * sizeof(Byte))) == 0) {
+        FreeStrtab(ctx);
         return GIF_OUTMEM;
     }
-    if ((StrNxt = (Word *) malloc(MAXSTR * sizeof(Word))) == 0) {
-        FreeStrtab();
+    if ((ctx->StrNxt = (Word *) malloc(MAXSTR * sizeof(Word))) == 0) {
+        FreeStrtab(ctx);
         return GIF_OUTMEM;
     }
-    if ((StrHsh = (Word *) malloc(HASHSIZE * sizeof(Word))) == 0) {
-        FreeStrtab();
+    if ((ctx->StrHsh = (Word *) malloc(HASHSIZE * sizeof(Word))) == 0) {
+        FreeStrtab(ctx);
         return GIF_OUTMEM;
     }
     return GIF_OK;
@@ -492,25 +378,25 @@ AllocStrtab(void)
  *  RETURNS       Index to new string, or 0xFFFF if no more room
  */
 static Word
-AddCharString(Word index, Byte b)
+AddCharString(GIFContext *ctx, Word index, Byte b)
 {
     Word hshidx;
 
     /* check if there is more room */
-    if (NumStrings >= MAXSTR)
+    if (ctx->NumStrings >= MAXSTR)
         return 0xFFFF;
 
     /* search the string table until a free position is found */
     hshidx = HASH(index, b);
-    while (StrHsh[hshidx] != 0xFFFF)
+    while (ctx->StrHsh[hshidx] != 0xFFFF)
         hshidx = (hshidx + HASHSTEP) % HASHSIZE;
 
     /* insert new string */
-    StrHsh[hshidx] = NumStrings;
-    StrChr[NumStrings] = b;
-    StrNxt[NumStrings] = (index != 0xFFFF) ? index : NEXT_FIRST;
+    ctx->StrHsh[hshidx] = ctx->NumStrings;
+    ctx->StrChr[ctx->NumStrings] = b;
+    ctx->StrNxt[ctx->NumStrings] = (index != 0xFFFF) ? index : NEXT_FIRST;
 
-    return NumStrings++;
+    return ctx->NumStrings++;
 }
 
 
@@ -532,7 +418,7 @@ AddCharString(Word index, Byte b)
  *  RETURNS       Index to string, or 0xFFFF if not found
  */
 static Word
-FindCharString(Word index, Byte b)
+FindCharString(GIFContext *ctx, Word index, Byte b)
 {
     Word hshidx, nxtidx;
 
@@ -545,8 +431,8 @@ FindCharString(Word index, Byte b)
     /* search the string table until the string is found, or we find
      * HASH_FREE. in that case the string does not exist. */
     hshidx = HASH(index, b);
-    while ((nxtidx = StrHsh[hshidx]) != 0xFFFF) {
-        if (StrNxt[nxtidx] == index && StrChr[nxtidx] == b)
+    while ((nxtidx = ctx->StrHsh[hshidx]) != 0xFFFF) {
+        if (ctx->StrNxt[nxtidx] == index && ctx->StrChr[nxtidx] == b)
             return nxtidx;
         hshidx = (hshidx + HASHSTEP) % HASHSIZE;
     }
@@ -569,23 +455,23 @@ FindCharString(Word index, Byte b)
  *                        number of bits to encode one pixel
  */
 static void
-ClearStrtab(int codesize)
+ClearStrtab(GIFContext *ctx, int codesize)
 {
     int q, w;
     Word *wp;
 
     /* no strings currently in the table */
-    NumStrings = 0;
+    ctx->NumStrings = 0;
 
     /* mark entire hashtable as free */
-    wp = StrHsh;
+    wp = ctx->StrHsh;
     for (q = 0; q < HASHSIZE; q++)
         *wp++ = HASH_FREE;
 
     /* insert 2**codesize one-character strings, and reserved codes */
     w = (1 << codesize) + RES_CODES;
     for (q = 0; q < w; q++)
-        AddCharString(0xFFFF, q);
+        AddCharString(ctx, 0xFFFF, q);
 }
 
 
@@ -612,7 +498,7 @@ ClearStrtab(int codesize)
  *                GIF_OUTMEM - Out of memory
  */
 static int
-LZW_Compress(int codesize, int (*inputbyte)(void))
+LZW_Compress(GIFContext *ctx, int codesize, int (*inputbyte)(void*), void *ibctx)
 {
     register int c;
     register Word index;
@@ -620,7 +506,7 @@ LZW_Compress(int codesize, int (*inputbyte)(void))
     Word prefix = 0xFFFF;
 
     /* set up the given outfile */
-    InitBitFile();
+    InitBitFile(ctx);
 
     /* set up variables and tables */
     clearcode = 1 << codesize;
@@ -629,32 +515,32 @@ LZW_Compress(int codesize, int (*inputbyte)(void))
     numbits = codesize + 1;
     limit = (1 << numbits) - 1;
 
-    if ((errcode = AllocStrtab()) != GIF_OK)
+    if ((errcode = AllocStrtab(ctx)) != GIF_OK)
         return errcode;
-    ClearStrtab(codesize);
+    ClearStrtab(ctx, codesize);
 
     /* first send a code telling the unpacker to clear the stringtable */
-    WriteBits(clearcode, numbits);
+    WriteBits(ctx, clearcode, numbits);
 
     /* pack image */
-    while ((c = inputbyte()) != -1) {
+    while ((c = inputbyte(ibctx)) != -1) {
         /* now perform the packing. check if the prefix + the new
          *  character is a string that exists in the table */
-        if ((index = FindCharString(prefix, c)) != 0xFFFF) {
+        if ((index = FindCharString(ctx, prefix, c)) != 0xFFFF) {
             /* the string exists in the table. make this string the
              * new prefix.  */
             prefix = index;
         } else {
             /* the string does not exist in the table. first write
              * code of the old prefix to the file. */
-            WriteBits(prefix, numbits);
+            WriteBits(ctx, prefix, numbits);
 
             /* add the new string (the prefix + the new character) to
              * the stringtable */
-            if (AddCharString(prefix, c) > limit) {
+            if (AddCharString(ctx, prefix, c) > limit) {
                 if (++numbits > 12) {
-                    WriteBits(clearcode, numbits - 1);
-                    ClearStrtab(codesize);
+                    WriteBits(ctx, clearcode, numbits - 1);
+                    ClearStrtab(ctx, codesize);
                     numbits = codesize + 1;
                 }
                 limit = (1 << numbits) - 1;
@@ -669,12 +555,12 @@ LZW_Compress(int codesize, int (*inputbyte)(void))
 
     /* end of info is reached. write last prefix. */
     if (prefix != 0xFFFF)
-        WriteBits(prefix, numbits);
+        WriteBits(ctx, prefix, numbits);
 
     /* erite end of info -mark, flush the buffer, and tidy up */
-    WriteBits(endofinfo, numbits);
-    ResetOutBitFile();
-    FreeStrtab();
+    WriteBits(ctx, endofinfo, numbits);
+    ResetOutBitFile(ctx);
+    FreeStrtab(ctx);
 
     return GIF_OK;
 }
@@ -720,16 +606,17 @@ BitsNeeded(Word n)
  *  RETURNS       Next pixelvalue, or -1 if no more pixels
  */
 static int
-InputByte(void)
+InputByte(void *_ctx)
 {
+    GIFCreationContext *ctx = _ctx;
     int ret;
 
-    if (RelPixY >= ImageHeight)
+    if (ctx->RelPixY >= ctx->ImageHeight)
         return -1;
-    ret = GetPixel(ImageLeft + RelPixX, ImageTop + RelPixY);
-    if (++RelPixX >= ImageWidth) {
-        RelPixX = 0;
-        ++RelPixY;
+    ret = ctx->GetPixel(ctx->getPixelCtx, ctx->ImageLeft + ctx->RelPixX, ctx->ImageTop + ctx->RelPixY);
+    if (++ctx->RelPixX >= ctx->ImageWidth) {
+        ctx->RelPixX = 0;
+        ++ctx->RelPixY;
     }
     return ret;
 }
@@ -748,23 +635,23 @@ InputByte(void)
  *                GIF_ERRWRITE - Error writing to the file
  */
 static int
-WriteScreenDescriptor(ScreenDescriptor *sd)
+WriteScreenDescriptor(GIFContext *ctx, ScreenDescriptor *sd)
 {
     Byte tmp;
 
-    if (WriteWord(sd->LocalScreenWidth) != GIF_OK)
+    if (WriteWord(ctx, sd->LocalScreenWidth) != GIF_OK)
         return GIF_ERRWRITE;
-    if (WriteWord(sd->LocalScreenHeight) != GIF_OK)
+    if (WriteWord(ctx, sd->LocalScreenHeight) != GIF_OK)
         return GIF_ERRWRITE;
     tmp = (sd->GlobalColorTableFlag << 7)
           | (sd->ColorResolution << 4)
           | (sd->SortFlag << 3)
           | sd->GlobalColorTableSize;
-    if (WriteByte(tmp) != GIF_OK)
+    if (WriteByte(ctx, tmp) != GIF_OK)
         return GIF_ERRWRITE;
-    if (WriteByte(sd->BackgroundColorIndex) != GIF_OK)
+    if (WriteByte(ctx, sd->BackgroundColorIndex) != GIF_OK)
         return GIF_ERRWRITE;
-    if (WriteByte(sd->PixelAspectRatio) != GIF_OK)
+    if (WriteByte(ctx, sd->PixelAspectRatio) != GIF_OK)
         return GIF_ERRWRITE;
 
     return GIF_OK;
@@ -785,22 +672,22 @@ WriteScreenDescriptor(ScreenDescriptor *sd)
  *                GIF_ERRWRITE - Error writing to the file
  */
 static int
-WriteTransparentColorIndex(int colornum)
+WriteTransparentColorIndex(GIFContext *ctx, int colornum)
 {
     if ( colornum < 0 ) return GIF_OK;		/*no transparent color set*/
-    if (WriteByte((Byte)(0x21)) != GIF_OK)	/*magic:Extension Introducer*/
+    if (WriteByte(ctx, (Byte)(0x21)) != GIF_OK)	/*magic:Extension Introducer*/
         return GIF_ERRWRITE;
-    if (WriteByte((Byte)(0xf9)) != GIF_OK)     /*magic:Graphic Control Label*/
+    if (WriteByte(ctx, (Byte)(0xf9)) != GIF_OK)     /*magic:Graphic Control Label*/
         return GIF_ERRWRITE;
-    if (WriteByte((Byte)(4)) != GIF_OK)		/* #bytes in block */
+    if (WriteByte(ctx, (Byte)(4)) != GIF_OK)		/* #bytes in block */
         return GIF_ERRWRITE;
-    if (WriteByte((Byte)(1)) != GIF_OK)        /*transparent index indicator*/
+    if (WriteByte(ctx, (Byte)(1)) != GIF_OK)        /*transparent index indicator*/
         return GIF_ERRWRITE;
-    if (WriteWord((Word)(0)) != GIF_OK)		/* delay time */
+    if (WriteWord(ctx, (Word)(0)) != GIF_OK)		/* delay time */
         return GIF_ERRWRITE;
-    if (WriteByte((Byte)(colornum)) != GIF_OK)	/* transparent color index */
+    if (WriteByte(ctx, (Byte)(colornum)) != GIF_OK)	/* transparent color index */
         return GIF_ERRWRITE;
-    if (WriteByte((Byte)(0)) != GIF_OK)        /* terminator */
+    if (WriteByte(ctx, (Byte)(0)) != GIF_OK)        /* terminator */
         return GIF_ERRWRITE;
 
     return GIF_OK;
@@ -820,26 +707,26 @@ WriteTransparentColorIndex(int colornum)
  *                GIF_ERRWRITE - Error writing to the file
  */
 static int
-WriteImageDescriptor(ImageDescriptor *id)
+WriteImageDescriptor(GIFContext *ctx, ImageDescriptor *id)
 {
     Byte tmp;
 
-    if (WriteByte(id->Separator) != GIF_OK)
+    if (WriteByte(ctx, id->Separator) != GIF_OK)
         return GIF_ERRWRITE;
-    if (WriteWord(id->LeftPosition) != GIF_OK)
+    if (WriteWord(ctx, id->LeftPosition) != GIF_OK)
         return GIF_ERRWRITE;
-    if (WriteWord(id->TopPosition) != GIF_OK)
+    if (WriteWord(ctx, id->TopPosition) != GIF_OK)
         return GIF_ERRWRITE;
-    if (WriteWord(id->Width) != GIF_OK)
+    if (WriteWord(ctx, id->Width) != GIF_OK)
         return GIF_ERRWRITE;
-    if (WriteWord(id->Height) != GIF_OK)
+    if (WriteWord(ctx, id->Height) != GIF_OK)
         return GIF_ERRWRITE;
     tmp = (id->LocalColorTableFlag << 7)
           | (id->InterlaceFlag << 6)
           | (id->SortFlag << 5)
           | (id->Reserved << 3)
           | id->LocalColorTableSize;
-    if (WriteByte(tmp) != GIF_OK)
+    if (WriteByte(ctx, tmp) != GIF_OK)
         return GIF_ERRWRITE;
 
     return GIF_OK;
@@ -870,38 +757,45 @@ WriteImageDescriptor(ImageDescriptor *id)
  *                        color resolution. Number of bits for each
  *                        primary color
  *
- *  RETURNS       GIF_OK        - OK
- *                GIF_ERRCREATE - Couldn't create file
- *                GIF_ERRWRITE  - Error writing to the file
- *                GIF_OUTMEM    - Out of memory allocating color table
+ *  RETURNS       Context
  */
-int
-GIF_Create(const char *filename, int width, int height,
+GIFContext *
+GIF_Create(FILE *fp, void *buffer, int buffer_size, int width, int height,
 	   int numcolors, int colorres)
 {
+    GIFContext *retval;
     int q, tabsize;
     Byte *bp;
     ScreenDescriptor SD;
 
-    /* initiate variables for new GIF-file */
-    NumColors = numcolors ? (1 << BitsNeeded(numcolors)) : 0;
-    BitsPrPrimColor = colorres;
-    ScreenHeight = height;
-    ScreenWidth = width;
+    if ((retval = malloc(sizeof(GIFContext))) == NULL) {
+        return NULL;
+    }
 
-    /* create file specified */
-    if (Create(filename) != GIF_OK)
-        return GIF_ERRCREATE;
+    memset(retval, sizeof(GIFContext), 0);
+
+    retval->TransparentColorIndex = -1;
+    retval->OutFile = fp;
+    retval->OutBuffer = buffer;
+    retval->maxgifSize = buffer_size;
+
+    /* initiate variables for new GIF-file */
+    retval->NumColors = numcolors ? (1 << BitsNeeded(numcolors)) : 0;
+    retval->BitsPrPrimColor = colorres;
+    retval->ScreenHeight = height;
+    retval->ScreenWidth = width;
 
     /* write GIF signature */
-    if ((Write("GIF87a", 6)) != GIF_OK)
-        return GIF_ERRWRITE;
+    if ((Write(retval, "GIF87a", 6)) != GIF_OK) {
+        free(retval);
+        return NULL;
+    }
 
     /* initiate and write screen descriptor */
     SD.LocalScreenWidth = width;
     SD.LocalScreenHeight = height;
-    if (NumColors) {
-        SD.GlobalColorTableSize = BitsNeeded(NumColors) - 1;
+    if (retval->NumColors) {
+        SD.GlobalColorTableSize = BitsNeeded(retval->NumColors) - 1;
         SD.GlobalColorTableFlag = 1;
     } else {
         SD.GlobalColorTableSize = 0;
@@ -911,25 +805,25 @@ GIF_Create(const char *filename, int width, int height,
     SD.ColorResolution = colorres - 1;
     SD.BackgroundColorIndex = 0;
     SD.PixelAspectRatio = 0;
-    if (WriteScreenDescriptor(&SD) != GIF_OK)
-        return GIF_ERRWRITE;
+    if (WriteScreenDescriptor(retval, &SD) != GIF_OK) {
+        free(retval);
+        return NULL;
+    }
 
     /* allocate color table */
-    if (ColorTable) {
-        free(ColorTable);
-        ColorTable = NULL;
-    }
-    if (NumColors) {
-        tabsize = NumColors * 3;
-        if ((ColorTable = (Byte *) malloc(tabsize * sizeof(Byte))) == NULL)
-            return GIF_OUTMEM;
-        else {
-            bp = ColorTable;
+    if (retval->NumColors) {
+        tabsize = retval->NumColors * 3;
+        if ((retval->ColorTable = (Byte *) malloc(tabsize * sizeof(Byte))) == NULL) {
+            free(retval);
+
+            return NULL;
+        } else {
+            bp = retval->ColorTable;
             for (q = 0; q < tabsize; q++)
                 *bp++ = 0;
         }
     }
-    return 0;
+    return retval;
 }
 
 
@@ -949,13 +843,13 @@ GIF_Create(const char *filename, int width, int height,
  *                blue    blue component of color
  */
 void
-GIF_SetColor(int colornum, int red, int green, int blue)
+GIF_SetColor(GIFContext *ctx, int colornum, int red, int green, int blue)
 {
     long maxcolor;
     Byte *p;
 
-    maxcolor = (1L << BitsPrPrimColor) - 1L;
-    p = ColorTable + colornum * 3;
+    maxcolor = (1L << ctx->BitsPrPrimColor) - 1L;
+    p = ctx->ColorTable + colornum * 3;
     *p++ = (Byte) ((red * 255L) / maxcolor);
     *p++ = (Byte) ((green * 255L) / maxcolor);
     *p++ = (Byte) ((blue * 255L) / maxcolor);
@@ -973,9 +867,9 @@ GIF_SetColor(int colornum, int red, int green, int blue)
  *                        color number to set transparent. [0, NumColors - 1]
  */
 void
-GIF_SetTransparent(int colornum)
+GIF_SetTransparent(GIFContext *ctx, int colornum)
 {
-    TransparentColorIndex = colornum;
+    ctx->TransparentColorIndex = colornum;
 }
 
 
@@ -1016,18 +910,19 @@ GIF_SetTransparent(int colornum)
  *                GIF_ERRWRITE - Error writing to the file
  */
 int
-GIF_CompressImage(int left, int top, int width, int height,
-		  int (*getpixel)(int x, int y))
+GIF_CompressImage(GIFContext *ctx, int left, int top, int width, int height,
+		  int (*getpixel)(void *ctx, int x, int y), void *getPixelCtx)
 {
     int codesize, errcode;
     ImageDescriptor ID;
+    GIFCreationContext cctx;
 
     if (width < 0) {
-        width = ScreenWidth;
+        width = ctx->ScreenWidth;
         left = 0;
     }
     if (height < 0) {
-        height = ScreenHeight;
+        height = ctx->ScreenHeight;
         top = 0;
     }
     if (left < 0)
@@ -1036,45 +931,46 @@ GIF_CompressImage(int left, int top, int width, int height,
         top = 0;
 
     /* write global colortable if any */
-    if (NumColors)
-        if ((Write(ColorTable, NumColors * 3)) != GIF_OK)
+    if (ctx->NumColors)
+        if ((Write(ctx, ctx->ColorTable, ctx->NumColors * 3)) != GIF_OK)
             return GIF_ERRWRITE;
 
     /* write graphic extension block with transparent color index */
-    if ( TransparentColorIndex >= 0 )     /* (added by j.forkosh) */
-      if ( WriteTransparentColorIndex(TransparentColorIndex)
+    if ( ctx->TransparentColorIndex >= 0 )     /* (added by j.forkosh) */
+      if ( WriteTransparentColorIndex(ctx, ctx->TransparentColorIndex)
       !=   GIF_OK ) return GIF_ERRWRITE;
 
     /* initiate and write image descriptor */
     ID.Separator = ',';
-    ID.LeftPosition = ImageLeft = left;
-    ID.TopPosition = ImageTop = top;
-    ID.Width = ImageWidth = width;
-    ID.Height = ImageHeight = height;
+    ID.LeftPosition = cctx.ImageLeft = left;
+    ID.TopPosition = cctx.ImageTop = top;
+    ID.Width = cctx.ImageWidth = width;
+    ID.Height = cctx.ImageHeight = height;
     ID.LocalColorTableSize = 0;
     ID.Reserved = 0;
     ID.SortFlag = 0;
     ID.InterlaceFlag = 0;
     ID.LocalColorTableFlag = 0;
 
-    if (WriteImageDescriptor(&ID) != GIF_OK)
+    if (WriteImageDescriptor(ctx, &ID) != GIF_OK)
         return GIF_ERRWRITE;
 
     /* write code size */
-    codesize = BitsNeeded(NumColors);
+    codesize = BitsNeeded(ctx->NumColors);
     if (codesize == 1)
         ++codesize;
-    if (WriteByte(codesize) != GIF_OK)
+    if (WriteByte(ctx, codesize) != GIF_OK)
         return GIF_ERRWRITE;
 
     /* perform compression */
-    RelPixX = RelPixY = 0;
-    GetPixel = getpixel;
-    if ((errcode = LZW_Compress(codesize, InputByte)) != GIF_OK)
+    cctx.RelPixX = cctx.RelPixY = 0;
+    cctx.GetPixel = getpixel;
+    cctx.getPixelCtx = getPixelCtx;
+    if ((errcode = LZW_Compress(ctx, codesize, InputByte, &cctx)) != GIF_OK)
         return errcode;
 
     /* write terminating 0-byte */
-    if (WriteByte(0) != GIF_OK)
+    if (WriteByte(ctx, 0) != GIF_OK)
         return GIF_ERRWRITE;
 
     return GIF_OK;
@@ -1092,7 +988,7 @@ GIF_CompressImage(int left, int top, int width, int height,
  *                GIF_ERRWRITE - Error writing to file
  */
 int
-GIF_Close(void)
+GIF_Close(GIFContext *ctx)
 {
     ImageDescriptor ID;
 
@@ -1108,16 +1004,16 @@ GIF_Close(void)
     ID.InterlaceFlag = 0;
     ID.LocalColorTableFlag = 0;
 
-    if (WriteImageDescriptor(&ID) != GIF_OK)
+    if (WriteImageDescriptor(ctx, &ID) != GIF_OK)
         return GIF_ERRWRITE;
 
     /* close file */
-    Close();
+    Close(ctx);
 
     /* release color table */
-    if (ColorTable) {
-        free(ColorTable);
-        ColorTable = NULL;
+    if (ctx->ColorTable) {
+        free(ctx->ColorTable);
+        ctx->ColorTable = NULL;
     }
 
     return GIF_OK;

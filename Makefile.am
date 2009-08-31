@@ -10,8 +10,7 @@ libmimetex_la_SOURCES = \
     raster.c \
     render.c \
     tex.c \
-    utils.c \
-    xbm.c
+    utils.c
 
 bin_PROGRAMS = mimetex gfuntype
 mimetex_SOURCES = driver.c md5.c gifsave.c gifsave.h md5.h
