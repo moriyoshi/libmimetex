@@ -489,8 +489,6 @@ debugging and logging / error reporting
 #endif
 
 int msglevel        = MSGLEVEL;    /* message level for verbose/debug */
-int errorstatus     = ERRORSTATUS;  /* exit status if error encountered*/
-int exitstatus      = 0;     /* exit status (0=success) */
 /* --- embed warnings in rendered expressions, [\xxx?] if \xxx unknown --- */
 #ifdef WARNINGS
 #define WARNINGLEVEL WARNINGS
@@ -513,7 +511,6 @@ int isligature = 0;     /* true if ligature found */
 char *subexprptr = (char *)NULL;  /* ptr within expression to subexpr*/
 int isdisplaystyle = 1;     /* displaystyle mode (forced if 2) */
 int ispreambledollars = 0;  /* displaystyle mode set by $$...$$ */
-int ninputcmds = 0;     /* # of \input commands processed */
 int fontnum = 0;        /* cal=1,scr=2,rm=3,it=4,bb=5,bf=6 */
 int fontsize = NORMALSIZE;  /* current size */
 int displaysize = DISPLAYSIZE;  /* use \displaystyle when fontsize>=*/
@@ -538,9 +535,7 @@ int bgred = 255;
 int bggreen = 255;
 int bgblue = 255;      /* bg r,g,b */
 double gammacorrection = 1.25; /* gamma correction */
-int isplusblank = -1;  /*interpret +'s in query as blanks?*/
 int isblackonwhite = 0; /*1=black on white,0=reverse*/
-char exprprefix[256] = "\000";  /* prefix prepended to expressions */
 int aaalgorithm = 1;  /* for lp, 1=aalowpass, 2 =aapnm */
 int maxfollow = 8;  /* aafollowline() maxturn parameter*/
 int fgalias = 1;

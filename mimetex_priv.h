@@ -91,9 +91,6 @@ extern int isreplaceleft;      /* true to replace leftexpression */
 extern subraster *leftexpression; /*rasterized so far*/
 extern mathchardef *leftsymdef; /* mathchardef for preceding symbol*/
 extern int fraccenterline; /* baseline for punct. after \frac */
-extern int iscaching;  /* true if caching images */
-extern char cachepath[256];  /* relative path to cached files */
-extern char pathprefix[256]; /*prefix for \input,\counter paths*/
 
 extern int centerwt;
 extern int minadjacent;
@@ -110,7 +107,6 @@ extern struct fontinfo_struct fontinfo[];
 extern int symspace[11][11];
 /* --- for low-pass anti-aliasing --- */
 extern fontfamily aafonttable[];
-extern fontfamily ssfonttable[];
 extern fontfamily *fonttable;
 
 /* --- dummy font table (for contexts requiring const) --- */

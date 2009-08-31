@@ -218,6 +218,11 @@ static int inputseclevel   = INPUTSECURITY; /* \input{} security level */
 static int counterseclevel = COUNTERSECURITY; /* \counter{} security level */
 static int environseclevel = ENVIRONSECURITY; /* \environ{} security level */
 static char pathprefix[256] = { '\000' }; /*prefix for \input,\counter paths*/
+static int exitstatus = 0;
+static char exprprefix[256] = "\000";  /* prefix prepended to expressions */
+static int ninputcmds = 0;     /* # of \input commands processed */
+static int errorstatus = ERRORSTATUS;  /* exit status if error encountered*/
+static int isplusblank = -1;  /*interpret +'s in query as blanks?*/
 
 static char *md5str(char *instr)
 {

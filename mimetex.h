@@ -329,11 +329,8 @@ typedef struct fontfamily_struct /* typedef for fontfamily */
 
 extern FILE *msgfp;            /* output in command-line mode */
 extern int msglevel       ;    /* message level for verbose/debug */
-extern int errorstatus    ;  /* exit status if error encountered*/
-extern int exitstatus     ;     /* exit status (0=success) */
 /* --- embed warnings in rendered expressions, [\xxx?] if \xxx unknown --- */
 extern int warninglevel;  /* warning level */
-extern int ninputcmds;     /* # of \input commands processed */
 extern int isblackonwhite; /*1=black on white,0=reverse*/
 extern int fgred;
 extern int fggreen;
@@ -346,8 +343,6 @@ extern int shrinkfactors[];
 extern int shrinkfactor;   /* shrinkfactors[fontsize] */
 extern int patternnumcount0[99], patternnumcount1[99]; /*aalookup() counts*/
 extern int istransparent;/* true sets background transparent*/
-extern int isplusblank;  /*interpret +'s in query as blanks?*/
-extern char exprprefix[256];  /* prefix prepended to expressions */
 extern int aaalgorithm;  /* for lp, 1=aalowpass, 2 =aapnm */
 
 /* ---
