@@ -6,7 +6,6 @@ libmimetex_la_SOURCES = \
     aa.c \
     bytemap.c \
     chardef.c \
-    cstruct.c \
     mimetex.c \
     raster.c \
     render.c \
