@@ -2049,7 +2049,7 @@ int main(int argc, char *argv[], char *envp[])
                         /* -g2 ==> ptype=2 */
                         if (arglen > 1) ptype = atoi(field + 1);
                         /*next arg is -switch*/
-                        if (1 || *argv[argnum] == '-') argnum--;
+                        if (*argv[argnum] == '-') argnum--;
                         else pbm_outfile = argv[argnum];
                         /*next arg is filename*/
                         break;
