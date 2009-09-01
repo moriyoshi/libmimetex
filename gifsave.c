@@ -823,6 +823,10 @@ GIF_Create(FILE *fp, void *buffer, int buffer_size, int width, int height,
                 *bp++ = 0;
         }
     }
+
+    retval->StrHsh = NULL;
+    retval->StrChr = NULL;
+    retval->StrNxt = NULL;
     return retval;
 }
 
