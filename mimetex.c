@@ -398,20 +398,6 @@ header files and macros
 
 #include "mimetex.h"
 
-FILE *msgfp = NULL;
-
-/* ------------------------------------------------------------
-adjustable default values
------------------------------------------------------------- */
-/* --- variables for anti-aliasing parameters --- */
-int centerwt    = 8;    /*lowpass matrix center pixel wt */
-int adjacentwt  = 2;  /*lowpass matrix adjacent pixel wt*/
-int cornerwt    = 1;    /*lowpass matrix corner pixel wt */
-int minadjacent = 6;  /* darken if>=adjacent pts black*/
-int maxadjacent = 8;  /* darken if<=adjacent pts black */
-int weightnum   = 1;      /* font wt, */
-int maxaaparams = 4;    /* #entries in table */
-
 /* --- anti-aliasing parameter values by font weight --- */
 aaparameters aaparams[] = {
  /* ------------------------------------------------------------
@@ -423,10 +409,6 @@ aaparameters aaparams[] = {
       { 8,   1,  1,    5,  8,     1, 0, 0, 0 },  /* 2 = semibold */
       { 8,   2,  1,    4,  9,     1, 0, 0, 0 }   /* 3 = bold */
 }; /* --- end-of-aaparams[] --- */
-
-/* --- anti-aliasing diagnostics (to help improve algorithm) --- */
-int patternnumcount0[99], patternnumcount1[99]; /*aalookup() counts*/
-int ispatternnumcount = 1;      /* true to accumulate counts */
 
 /* ------------------------------------------------------------
 other variables
@@ -482,13 +464,12 @@ debugging and logging / error reporting
 #ifndef MSGLEVEL
 #define MSGLEVEL 1
 #endif
-#define DBGLEVEL 9          /* debugging if msglevel>=DBGLEVEL */
-#define LOGLEVEL 3          /* logging if msglevel>=LOGLEVEL */
+#define DBGLEVEL 9          /* debugging if mctx->msglevel>=DBGLEVEL */
+#define LOGLEVEL 3          /* logging if mctx->msglevel>=LOGLEVEL */
 #ifndef ERRORSTATUS         /* exit(ERRORSTATUS) for any error */
 #define ERRORSTATUS 0         /* default doesn't signal errors */
 #endif
 
-int msglevel        = MSGLEVEL;    /* message level for verbose/debug */
 /* --- embed warnings in rendered expressions, [\xxx?] if \xxx unknown --- */
 #ifdef WARNINGS
 #define WARNINGLEVEL WARNINGS
@@ -499,55 +480,6 @@ int msglevel        = MSGLEVEL;    /* message level for verbose/debug */
 #define WARNINGLEVEL 1
 #endif
 #endif
-int warninglevel = WARNINGLEVEL;  /* warning level */
-
-/* ------------------------------------------------------------
-control flags and values
------------------------------------------------------------- */
-int recurlevel = 0;     /* inc/decremented in rasterize() */
-int scriptlevel = 0;    /* inc/decremented in rastlimits() */
-int isstring = 0;       /*pixmap is ascii string, not raster*/
-int isligature = 0;     /* true if ligature found */
-char *subexprptr = (char *)NULL;  /* ptr within expression to subexpr*/
-int isdisplaystyle = 1;     /* displaystyle mode (forced if 2) */
-int ispreambledollars = 0;  /* displaystyle mode set by $$...$$ */
-int fontnum = 0;        /* cal=1,scr=2,rm=3,it=4,bb=5,bf=6 */
-int fontsize = NORMALSIZE;  /* current size */
-int displaysize = DISPLAYSIZE;  /* use \displaystyle when fontsize>=*/
-int shrinkfactor = 3;   /* shrinkfactors[fontsize] */
-double unitlength = 1.0;    /* #pixels per unit (may be <1.0) */
-int isnocatspace = 0;   /* >0 to not add space in rastcat()*/
-int smashmargin = SMASHMARGIN;  /* minimum "smash" margin */
-int mathsmashmargin = SMASHMARGIN; /* needed for \text{if $n-m$ even}*/
-int issmashdelta = 1;   /* true if smashmargin is a delta */
-int isexplicitsmash = 0;    /* true if \smash explicitly given */
-int smashcheck = SMASHCHECK;  /* check if terms safe to smash */
-int isscripted = 0;     /* is (lefthand) term text-scripted*/
-int isdelimscript = 0;      /* is \right delim text-scripted */
-int issmashokay = 0;    /*is leading char okay for smashing*/
-int blanksignal = BLANKSIGNAL;  /*rastsmash signal right-hand blank*/
-int blanksymspace = 0;      /* extra (or too much) space wanted*/
-int istransparent = 1;      /* true sets background transparent*/
-int fgred = 0;
-int fggreen = 0;
-int fgblue = 0;      /* fg r,g,b */
-int bgred = 255;
-int bggreen = 255;
-int bgblue = 255;      /* bg r,g,b */
-double gammacorrection = 1.25; /* gamma correction */
-int isblackonwhite = 0; /*1=black on white,0=reverse*/
-int aaalgorithm = 1;  /* for lp, 1=aalowpass, 2 =aapnm */
-int maxfollow = 8;  /* aafollowline() maxturn parameter*/
-int fgalias = 1;
-int fgonly = 0;
-int bgalias = 0;
-int bgonly = 0;       /* aapnm() params */
-int *workingparam = (int *)NULL;  /* working parameter */
-subraster *workingbox = (subraster *)NULL; /*working subraster box*/
-int isreplaceleft = 0;      /* true to replace leftexpression */
-subraster *leftexpression = (subraster *)NULL; /*rasterized so far*/
-mathchardef *leftsymdef = NULL; /* mathchardef for preceding symbol*/
-int fraccenterline = NOVALUE; /* baseline for punct. after \frac */
 
 int nfontinfo =  8;
 
@@ -606,9 +538,8 @@ fontfamily aafonttable[] = {
       {    -999, {    NULL,     NULL,     NULL,     NULL,     NULL,     NULL,     NULL,     NULL}}
 }; /* --- end-of-aafonttable[] --- */
 
-fontfamily *fonttable = aafonttable;
 
-/*supersampling shrinkfactor by size*/ 
+/*supersampling mctx->shrinkfactor by size*/ 
 int shrinkfactors[]= {
     3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1
 };
@@ -618,212 +549,212 @@ static mathchardef handlers[] = {
           symbol    arg1     arg2     arg3       function
     -------------------------------------------------------- */
     /* --- commands --- */
-    { "\\left", NOVALUE, NOVALUE, NOVALUE, (HANDLER)(rastleft) },
-    { "\\middle", NOVALUE, NOVALUE, NOVALUE, (HANDLER)(rastmiddle) },
-    { "\\frac",   1,    NOVALUE, NOVALUE, (HANDLER)(rastfrac) },
-    { "\\over",   1,    NOVALUE, NOVALUE, (HANDLER)(rastfrac) },
-    { "\\atop",   0,    NOVALUE, NOVALUE, (HANDLER)(rastfrac) },
-    { "\\choose", 0,    NOVALUE, NOVALUE, (HANDLER)(rastfrac) },
-    { "\\not",    1,          0, NOVALUE, (HANDLER)(rastoverlay) },
-    { "\\Not",    2,          0, NOVALUE, (HANDLER)(rastoverlay) },
-    { "\\widenot", 2,          0, NOVALUE, (HANDLER)(rastoverlay) },
-    { "\\sout",   3,    NOVALUE, NOVALUE, (HANDLER)(rastoverlay) },
-    { "\\strikeout", 3,  NOVALUE, NOVALUE, (HANDLER)(rastoverlay) },
-    { "\\compose", NOVALUE, NOVALUE, NOVALUE, (HANDLER)(rastoverlay) },
-    { "\\stackrel", 2,  NOVALUE, NOVALUE, (HANDLER)(rastackrel) },
-    { "\\relstack", 1,  NOVALUE, NOVALUE, (HANDLER)(rastackrel) },
-    { "\\sqrt", NOVALUE, NOVALUE, NOVALUE, (HANDLER)(rastsqrt) },
-    { "\\overbrace",  OVERBRACE, 1,    1, (HANDLER)(rastaccent) },
-    { "\\underbrace", UNDERBRACE, 0,    1, (HANDLER)(rastaccent) },
-    { "\\overline",   BARACCENT, 1,    0, (HANDLER)(rastaccent) },
-    { "\\underline", UNDERBARACCENT, 0, 0, (HANDLER)(rastaccent) },
-    { "\\begin", NOVALUE, NOVALUE, NOVALUE, (HANDLER)(rastbegin) },
-    { "\\array", NOVALUE, NOVALUE, NOVALUE, (HANDLER)(rastarray) },
-    { "\\matrix", NOVALUE, NOVALUE, NOVALUE, (HANDLER)(rastarray) },
-    { "\\tabular", NOVALUE, NOVALUE, NOVALUE, (HANDLER)(rastarray) },
-    { "\\picture", NOVALUE, NOVALUE, NOVALUE, (HANDLER)(rastpicture) },
-    { "\\line", NOVALUE, NOVALUE, NOVALUE, (HANDLER)(rastline) },
-    { "\\rule", NOVALUE, NOVALUE, NOVALUE, (HANDLER)(rastrule) },
-    { "\\circle", NOVALUE, NOVALUE, NOVALUE, (HANDLER)(rastcircle) },
-    { "\\bezier", NOVALUE, NOVALUE, NOVALUE, (HANDLER)(rastbezier) },
-    { "\\qbezier", NOVALUE, NOVALUE, NOVALUE, (HANDLER)(rastbezier) },
-    { "\\raisebox", NOVALUE, NOVALUE, NOVALUE, (HANDLER)(rastraise) },
-    { "\\rotatebox", NOVALUE, NOVALUE, NOVALUE, (HANDLER)(rastrotate) },
-    { "\\reflectbox", NOVALUE, NOVALUE, NOVALUE, (HANDLER)(rastreflect) },
-    { "\\fbox", NOVALUE, NOVALUE, NOVALUE, (HANDLER)(rastfbox) },
-    { "\\today", NOVALUE, NOVALUE, NOVALUE, (HANDLER)(rasttoday) },
-    { "\\calendar", NOVALUE, NOVALUE, NOVALUE, (HANDLER)(rastcalendar) },
+    { "\\left", NOVALUE, NOVALUE, NOVALUE, rastleft },
+    { "\\middle", NOVALUE, NOVALUE, NOVALUE, rastmiddle },
+    { "\\frac",   1,    NOVALUE, NOVALUE, rastfrac },
+    { "\\over",   1,    NOVALUE, NOVALUE, rastfrac },
+    { "\\atop",   0,    NOVALUE, NOVALUE, rastfrac },
+    { "\\choose", 0,    NOVALUE, NOVALUE, rastfrac },
+    { "\\not",    1,          0, NOVALUE, rastoverlay },
+    { "\\Not",    2,          0, NOVALUE, rastoverlay },
+    { "\\widenot", 2,          0, NOVALUE, rastoverlay },
+    { "\\sout",   3,    NOVALUE, NOVALUE, rastoverlay },
+    { "\\strikeout", 3,  NOVALUE, NOVALUE, rastoverlay },
+    { "\\compose", NOVALUE, NOVALUE, NOVALUE, rastoverlay },
+    { "\\stackrel", 2,  NOVALUE, NOVALUE, rastackrel },
+    { "\\relstack", 1,  NOVALUE, NOVALUE, rastackrel },
+    { "\\sqrt", NOVALUE, NOVALUE, NOVALUE, rastsqrt },
+    { "\\overbrace",  OVERBRACE, 1,    1, rastaccent },
+    { "\\underbrace", UNDERBRACE, 0,    1, rastaccent },
+    { "\\overline",   BARACCENT, 1,    0, rastaccent },
+    { "\\underline", UNDERBARACCENT, 0, 0, rastaccent },
+    { "\\begin", NOVALUE, NOVALUE, NOVALUE, rastbegin },
+    { "\\array", NOVALUE, NOVALUE, NOVALUE, rastarray },
+    { "\\matrix", NOVALUE, NOVALUE, NOVALUE, rastarray },
+    { "\\tabular", NOVALUE, NOVALUE, NOVALUE, rastarray },
+    { "\\picture", NOVALUE, NOVALUE, NOVALUE, rastpicture },
+    { "\\line", NOVALUE, NOVALUE, NOVALUE, rastline },
+    { "\\rule", NOVALUE, NOVALUE, NOVALUE, rastrule },
+    { "\\circle", NOVALUE, NOVALUE, NOVALUE, rastcircle },
+    { "\\bezier", NOVALUE, NOVALUE, NOVALUE, rastbezier },
+    { "\\qbezier", NOVALUE, NOVALUE, NOVALUE, rastbezier },
+    { "\\raisebox", NOVALUE, NOVALUE, NOVALUE, rastraise },
+    { "\\rotatebox", NOVALUE, NOVALUE, NOVALUE, rastrotate },
+    { "\\reflectbox", NOVALUE, NOVALUE, NOVALUE, rastreflect },
+    { "\\fbox", NOVALUE, NOVALUE, NOVALUE, rastfbox },
+    { "\\today", NOVALUE, NOVALUE, NOVALUE, rasttoday },
+    { "\\calendar", NOVALUE, NOVALUE, NOVALUE, rastcalendar },
     /* --- spaces --- */
-    { "\\/",    1,  NOVALUE, NOVALUE, (HANDLER)(rastspace) },
-    { "\\,",    2,  NOVALUE, NOVALUE, (HANDLER)(rastspace) },
-    { "\\:",    4,  NOVALUE, NOVALUE, (HANDLER)(rastspace) },
-    { "\\;",    6,  NOVALUE, NOVALUE, (HANDLER)(rastspace) },
-    { "\\\n",   3,  NOVALUE, NOVALUE, (HANDLER)(rastspace) },
-    { "\\\r",   3,  NOVALUE, NOVALUE, (HANDLER)(rastspace) },
-    { "\\\t",   3,  NOVALUE, NOVALUE, (HANDLER)(rastspace) },
-    /*{ "\\~",5,NOVALUE,NOVALUE,(HANDLER)(rastspace) },*/
-    { "~",  5,  NOVALUE, NOVALUE, (HANDLER)(rastspace) },
-    { "\\ ",    5,  NOVALUE, NOVALUE, (HANDLER)(rastspace) },
-    { " ",  5,  NOVALUE, NOVALUE, (HANDLER)(rastspace) },
-    { "\\!",    -2, NOVALUE, NOVALUE, (HANDLER)(rastspace) },
-    /*{ "\\!*", -2,      99,NOVALUE,  (HANDLER)(rastspace) },*/
-    { "\\quad", 6,  NOVALUE, NOVALUE, (HANDLER)(rastspace) },
-    { "\\qquad", 10, NOVALUE, NOVALUE, (HANDLER)(rastspace) },
-    { "\\hspace", 0, NOVALUE, NOVALUE, (HANDLER)(rastspace) },
-    { "\\hspace*", 0,         99, NOVALUE, (HANDLER)(rastspace) },
-    { "\\vspace", 0, NOVALUE,      1, (HANDLER)(rastspace) },
-    { "\\hfill", 0,        1, NOVALUE, (HANDLER)(rastspace) },
+    { "\\/",    1,  NOVALUE, NOVALUE, rastspace },
+    { "\\,",    2,  NOVALUE, NOVALUE, rastspace },
+    { "\\:",    4,  NOVALUE, NOVALUE, rastspace },
+    { "\\;",    6,  NOVALUE, NOVALUE, rastspace },
+    { "\\\n",   3,  NOVALUE, NOVALUE, rastspace },
+    { "\\\r",   3,  NOVALUE, NOVALUE, rastspace },
+    { "\\\t",   3,  NOVALUE, NOVALUE, rastspace },
+    /*{ "\\~",5,NOVALUE,NOVALUE,rastspace },*/
+    { "~",  5,  NOVALUE, NOVALUE, rastspace },
+    { "\\ ",    5,  NOVALUE, NOVALUE, rastspace },
+    { " ",  5,  NOVALUE, NOVALUE, rastspace },
+    { "\\!",    -2, NOVALUE, NOVALUE, rastspace },
+    /*{ "\\!*", -2,      99,NOVALUE,  rastspace },*/
+    { "\\quad", 6,  NOVALUE, NOVALUE, rastspace },
+    { "\\qquad", 10, NOVALUE, NOVALUE, rastspace },
+    { "\\hspace", 0, NOVALUE, NOVALUE, rastspace },
+    { "\\hspace*", 0,         99, NOVALUE, rastspace },
+    { "\\vspace", 0, NOVALUE,      1, rastspace },
+    { "\\hfill", 0,        1, NOVALUE, rastspace },
     /* --- newline --- */
-    { "\\\\",   NOVALUE, NOVALUE, NOVALUE, (HANDLER)(rastnewline) },
+    { "\\\\",   NOVALUE, NOVALUE, NOVALUE, rastnewline },
     /* --- arrows --- */
-    { "\\longrightarrow",   1, 0, NOVALUE, (HANDLER)(rastarrow) },
-    { "\\Longrightarrow",   1, 1, NOVALUE, (HANDLER)(rastarrow) },
-    { "\\longleftarrow",   -1, 0, NOVALUE, (HANDLER)(rastarrow) },
-    { "\\Longleftarrow",   -1, 1, NOVALUE, (HANDLER)(rastarrow) },
-    { "\\longleftrightarrow", 0, 0, NOVALUE, (HANDLER)(rastarrow) },
-    { "\\Longleftrightarrow", 0, 1, NOVALUE, (HANDLER)(rastarrow) },
-    { "\\longuparrow",      1, 0, NOVALUE, (HANDLER)(rastuparrow) },
-    { "\\Longuparrow",      1, 1, NOVALUE, (HANDLER)(rastuparrow) },
-    { "\\longdownarrow",   -1, 0, NOVALUE, (HANDLER)(rastuparrow) },
-    { "\\Longdownarrow",   -1, 1, NOVALUE, (HANDLER)(rastuparrow) },
-    { "\\longupdownarrow",  0, 0, NOVALUE, (HANDLER)(rastuparrow) },
-    { "\\Longupdownarrow",  0, 1, NOVALUE, (HANDLER)(rastuparrow) },
+    { "\\longrightarrow",   1, 0, NOVALUE, rastarrow },
+    { "\\Longrightarrow",   1, 1, NOVALUE, rastarrow },
+    { "\\longleftarrow",   -1, 0, NOVALUE, rastarrow },
+    { "\\Longleftarrow",   -1, 1, NOVALUE, rastarrow },
+    { "\\longleftrightarrow", 0, 0, NOVALUE, rastarrow },
+    { "\\Longleftrightarrow", 0, 1, NOVALUE, rastarrow },
+    { "\\longuparrow",      1, 0, NOVALUE, rastuparrow },
+    { "\\Longuparrow",      1, 1, NOVALUE, rastuparrow },
+    { "\\longdownarrow",   -1, 0, NOVALUE, rastuparrow },
+    { "\\Longdownarrow",   -1, 1, NOVALUE, rastuparrow },
+    { "\\longupdownarrow",  0, 0, NOVALUE, rastuparrow },
+    { "\\Longupdownarrow",  0, 1, NOVALUE, rastuparrow },
     /* --- modes and values --- */
-    { "\\cal",        1,     NOVALUE, NOVALUE, (HANDLER)(rastfont) },
-    { "\\mathcal",    1,     NOVALUE, NOVALUE, (HANDLER)(rastfont) },
-    { "\\scr",        2,     NOVALUE, NOVALUE, (HANDLER)(rastfont) },
-    { "\\mathscr",    2,     NOVALUE, NOVALUE, (HANDLER)(rastfont) },
-    { "\\mathfrak",   2,     NOVALUE, NOVALUE, (HANDLER)(rastfont) },
-    { "\\mathbb",     5,     NOVALUE, NOVALUE, (HANDLER)(rastfont) },
-    { "\\rm",         3,     NOVALUE, NOVALUE, (HANDLER)(rastfont) },
-    { "\\text",       3,     NOVALUE, NOVALUE, (HANDLER)(rastfont) },
-    { "\\textrm",     3,     NOVALUE, NOVALUE, (HANDLER)(rastfont) },
-    { "\\mathrm",     7,     NOVALUE, NOVALUE, (HANDLER)(rastfont) },
-    { "\\cyr",        8,     NOVALUE, NOVALUE, (HANDLER)(rastfont) },
-    { "\\mathbf",     6,     NOVALUE, NOVALUE, (HANDLER)(rastfont) },
-    { "\\bf",         6,     NOVALUE, NOVALUE, (HANDLER)(rastfont) },
-    { "\\mathtt",     3,     NOVALUE, NOVALUE, (HANDLER)(rastfont) },
-    { "\\mathsf",     3,     NOVALUE, NOVALUE, (HANDLER)(rastfont) },
-    { "\\mbox",       3,     NOVALUE, NOVALUE, (HANDLER)(rastfont) },
-    { "\\operatorname",   3,     NOVALUE, NOVALUE, (HANDLER)(rastfont) },
-    { "\\it",         4,     NOVALUE, NOVALUE, (HANDLER)(rastfont) },
-    { "\\textit",     4,     NOVALUE, NOVALUE, (HANDLER)(rastfont) },
-    { "\\mathit",     4,     NOVALUE, NOVALUE, (HANDLER)(rastfont) },
-    { "\\rm",     ISFONTFAM,           3, NOVALUE, (HANDLER)(rastflags) },
-    { "\\it",     ISFONTFAM,           4, NOVALUE, (HANDLER)(rastflags) },
-    { "\\sl",     ISFONTFAM,           4, NOVALUE, (HANDLER)(rastflags) },
-    { "\\bb",     ISFONTFAM,           5, NOVALUE, (HANDLER)(rastflags) },
-    { "\\bf",     ISFONTFAM,           6, NOVALUE, (HANDLER)(rastflags) },
-    { "\\text",   ISFONTFAM,           3, NOVALUE, (HANDLER)(rastflags) },
-    { "\\math",   ISFONTFAM,           0, NOVALUE, (HANDLER)(rastflags) },
-    { "\\ascii",     ISSTRING,         1, NOVALUE, (HANDLER)(rastflags) },
-    { "\\image",     ISSTRING,         0, NOVALUE, (HANDLER)(rastflags) },
-    { "\\limits",    ISDISPLAYSTYLE,   2, NOVALUE, (HANDLER)(rastflags) },
-    { "\\nolimits",  ISDISPLAYSTYLE,   0, NOVALUE, (HANDLER)(rastflags) },
-    { "\\displaystyle", ISDISPLAYSTYLE, 2, NOVALUE, (HANDLER)(rastflags) },
-    { "\\textstyle", ISDISPLAYSTYLE,   0, NOVALUE, (HANDLER)(rastflags) },
-    { "\\displaysize", ISDISPLAYSIZE, NOVALUE, NOVALUE, (HANDLER)(rastflags)},
-    { "\\tiny",      ISFONTSIZE,       0, NOVALUE, (HANDLER)(rastflags) },
-    { "\\scriptsize", ISFONTSIZE,       0, NOVALUE, (HANDLER)(rastflags) },
-    { "\\footnotesize", ISFONTSIZE,     1, NOVALUE, (HANDLER)(rastflags) },
-    { "\\small",     ISFONTSIZE,       1, NOVALUE, (HANDLER)(rastflags) },
-    { "\\normalsize", ISFONTSIZE,       2, NOVALUE, (HANDLER)(rastflags) },
-    { "\\large",     ISFONTSIZE,       3, NOVALUE, (HANDLER)(rastflags) },
-    { "\\Large",     ISFONTSIZE,       4, NOVALUE, (HANDLER)(rastflags) },
-    { "\\LARGE",     ISFONTSIZE,       5, NOVALUE, (HANDLER)(rastflags) },
-    { "\\huge",      ISFONTSIZE,       6, NOVALUE, (HANDLER)(rastflags) },
-    { "\\Huge",      ISFONTSIZE,       7, NOVALUE, (HANDLER)(rastflags) },
-    { "\\HUGE",      ISFONTSIZE,       7, NOVALUE, (HANDLER)(rastflags) },
-    { "\\fontsize",  ISFONTSIZE, NOVALUE, NOVALUE, (HANDLER)(rastflags) },
-    { "\\fs",        ISFONTSIZE, NOVALUE, NOVALUE, (HANDLER)(rastflags) },
-    { "\\light",     ISWEIGHT,         0, NOVALUE, (HANDLER)(rastflags) },
-    { "\\regular",   ISWEIGHT,         1, NOVALUE, (HANDLER)(rastflags) },
-    { "\\semibold",  ISWEIGHT,         2, NOVALUE, (HANDLER)(rastflags) },
-    { "\\bold",      ISWEIGHT,         3, NOVALUE, (HANDLER)(rastflags) },
-    { "\\fontweight", ISWEIGHT,   NOVALUE, NOVALUE, (HANDLER)(rastflags) },
-    { "\\fw",        ISWEIGHT,   NOVALUE, NOVALUE, (HANDLER)(rastflags) },
-    { "\\centerwt",  ISCENTERWT, NOVALUE, NOVALUE, (HANDLER)(rastflags) },
-    { "\\adjacentwt", ISADJACENTWT, NOVALUE, NOVALUE, (HANDLER)(rastflags) },
-    { "\\cornerwt",  ISCORNERWT, NOVALUE, NOVALUE, (HANDLER)(rastflags) },
-    { "\\aaalg", ISAAALGORITHM,   NOVALUE, NOVALUE, (HANDLER)(rastflags) },
-    { "\\pnmparams", PNMPARAMS,   NOVALUE, NOVALUE, (HANDLER)(rastflags) },
-    { "\\gammacorrection", ISGAMMA, NOVALUE, NOVALUE, (HANDLER)(rastflags) },
-    { "\\nocontenttype", ISCONTENTTYPE, 0, NOVALUE, (HANDLER)(rastflags) },
-    { "\\opaque",    ISOPAQUE,         0, NOVALUE, (HANDLER)(rastflags) },
-    { "\\transparent", ISOPAQUE,        1, NOVALUE, (HANDLER)(rastflags) },
-    { "\\squash",    ISSMASH,          3, 1, (HANDLER)(rastflags) },
-    { "\\smash",     ISSMASH,          3, 1, (HANDLER)(rastflags) },
-    { "\\nosquash",  ISSMASH,          0, NOVALUE, (HANDLER)(rastflags) },
-    { "\\nosmash",   ISSMASH,          0, NOVALUE, (HANDLER)(rastflags) },
-    { "\\squashmargin", ISSMASH,  NOVALUE, NOVALUE, (HANDLER)(rastflags) },
-    { "\\smashmargin", ISSMASH,  NOVALUE, NOVALUE, (HANDLER)(rastflags) },
-    { "\\unitlength", UNITLENGTH, NOVALUE, NOVALUE, (HANDLER)(rastflags) },
-    { "\\reverse",   ISREVERSE,  NOVALUE, NOVALUE, (HANDLER)(rastflags) },
-    { "\\reversefg", ISREVERSE,        1, NOVALUE, (HANDLER)(rastflags) },
-    { "\\reversebg", ISREVERSE,        2, NOVALUE, (HANDLER)(rastflags) },
-    { "\\color",     ISCOLOR,    NOVALUE, NOVALUE, (HANDLER)(rastflags) },
-    { "\\red",       ISCOLOR,          1, NOVALUE, (HANDLER)(rastflags) },
-    { "\\green",     ISCOLOR,          2, NOVALUE, (HANDLER)(rastflags) },
-    { "\\blue",      ISCOLOR,          3, NOVALUE, (HANDLER)(rastflags) },
-    { "\\black",     ISCOLOR,          0, NOVALUE, (HANDLER)(rastflags) },
-    { "\\white",     ISCOLOR,          7, NOVALUE, (HANDLER)(rastflags) },
+    { "\\cal",        1,     NOVALUE, NOVALUE, rastfont },
+    { "\\mathcal",    1,     NOVALUE, NOVALUE, rastfont },
+    { "\\scr",        2,     NOVALUE, NOVALUE, rastfont },
+    { "\\mathscr",    2,     NOVALUE, NOVALUE, rastfont },
+    { "\\mathfrak",   2,     NOVALUE, NOVALUE, rastfont },
+    { "\\mathbb",     5,     NOVALUE, NOVALUE, rastfont },
+    { "\\rm",         3,     NOVALUE, NOVALUE, rastfont },
+    { "\\text",       3,     NOVALUE, NOVALUE, rastfont },
+    { "\\textrm",     3,     NOVALUE, NOVALUE, rastfont },
+    { "\\mathrm",     7,     NOVALUE, NOVALUE, rastfont },
+    { "\\cyr",        8,     NOVALUE, NOVALUE, rastfont },
+    { "\\mathbf",     6,     NOVALUE, NOVALUE, rastfont },
+    { "\\bf",         6,     NOVALUE, NOVALUE, rastfont },
+    { "\\mathtt",     3,     NOVALUE, NOVALUE, rastfont },
+    { "\\mathsf",     3,     NOVALUE, NOVALUE, rastfont },
+    { "\\mbox",       3,     NOVALUE, NOVALUE, rastfont },
+    { "\\operatorname",   3,     NOVALUE, NOVALUE, rastfont },
+    { "\\it",         4,     NOVALUE, NOVALUE, rastfont },
+    { "\\textit",     4,     NOVALUE, NOVALUE, rastfont },
+    { "\\mathit",     4,     NOVALUE, NOVALUE, rastfont },
+    { "\\rm",     ISFONTFAM,           3, NOVALUE, rastflags },
+    { "\\it",     ISFONTFAM,           4, NOVALUE, rastflags },
+    { "\\sl",     ISFONTFAM,           4, NOVALUE, rastflags },
+    { "\\bb",     ISFONTFAM,           5, NOVALUE, rastflags },
+    { "\\bf",     ISFONTFAM,           6, NOVALUE, rastflags },
+    { "\\text",   ISFONTFAM,           3, NOVALUE, rastflags },
+    { "\\math",   ISFONTFAM,           0, NOVALUE, rastflags },
+    { "\\ascii",     ISSTRING,         1, NOVALUE, rastflags },
+    { "\\image",     ISSTRING,         0, NOVALUE, rastflags },
+    { "\\limits",    ISDISPLAYSTYLE,   2, NOVALUE, rastflags },
+    { "\\nolimits",  ISDISPLAYSTYLE,   0, NOVALUE, rastflags },
+    { "\\displaystyle", ISDISPLAYSTYLE, 2, NOVALUE, rastflags },
+    { "\\textstyle", ISDISPLAYSTYLE,   0, NOVALUE, rastflags },
+    { "\\displaysize", ISDISPLAYSIZE, NOVALUE, NOVALUE, rastflags},
+    { "\\tiny",      ISFONTSIZE,       0, NOVALUE, rastflags },
+    { "\\scriptsize", ISFONTSIZE,       0, NOVALUE, rastflags },
+    { "\\footnotesize", ISFONTSIZE,     1, NOVALUE, rastflags },
+    { "\\small",     ISFONTSIZE,       1, NOVALUE, rastflags },
+    { "\\normalsize", ISFONTSIZE,       2, NOVALUE, rastflags },
+    { "\\large",     ISFONTSIZE,       3, NOVALUE, rastflags },
+    { "\\Large",     ISFONTSIZE,       4, NOVALUE, rastflags },
+    { "\\LARGE",     ISFONTSIZE,       5, NOVALUE, rastflags },
+    { "\\huge",      ISFONTSIZE,       6, NOVALUE, rastflags },
+    { "\\Huge",      ISFONTSIZE,       7, NOVALUE, rastflags },
+    { "\\HUGE",      ISFONTSIZE,       7, NOVALUE, rastflags },
+    { "\\fontsize",  ISFONTSIZE, NOVALUE, NOVALUE, rastflags },
+    { "\\fs",        ISFONTSIZE, NOVALUE, NOVALUE, rastflags },
+    { "\\light",     ISWEIGHT,         0, NOVALUE, rastflags },
+    { "\\regular",   ISWEIGHT,         1, NOVALUE, rastflags },
+    { "\\semibold",  ISWEIGHT,         2, NOVALUE, rastflags },
+    { "\\bold",      ISWEIGHT,         3, NOVALUE, rastflags },
+    { "\\fontweight", ISWEIGHT,   NOVALUE, NOVALUE, rastflags },
+    { "\\fw",        ISWEIGHT,   NOVALUE, NOVALUE, rastflags },
+    { "\\centerwt",  ISCENTERWT, NOVALUE, NOVALUE, rastflags },
+    { "\\adjacentwt", ISADJACENTWT, NOVALUE, NOVALUE, rastflags },
+    { "\\cornerwt",  ISCORNERWT, NOVALUE, NOVALUE, rastflags },
+    { "\\aaalg", ISAAALGORITHM,   NOVALUE, NOVALUE, rastflags },
+    { "\\pnmparams", PNMPARAMS,   NOVALUE, NOVALUE, rastflags },
+    { "\\gammacorrection", ISGAMMA, NOVALUE, NOVALUE, rastflags },
+    { "\\nocontenttype", ISCONTENTTYPE, 0, NOVALUE, rastflags },
+    { "\\opaque",    ISOPAQUE,         0, NOVALUE, rastflags },
+    { "\\transparent", ISOPAQUE,        1, NOVALUE, rastflags },
+    { "\\squash",    ISSMASH,          3, 1, rastflags },
+    { "\\smash",     ISSMASH,          3, 1, rastflags },
+    { "\\nosquash",  ISSMASH,          0, NOVALUE, rastflags },
+    { "\\nosmash",   ISSMASH,          0, NOVALUE, rastflags },
+    { "\\squashmargin", ISSMASH,  NOVALUE, NOVALUE, rastflags },
+    { "\\smashmargin", ISSMASH,  NOVALUE, NOVALUE, rastflags },
+    { "\\unitlength", UNITLENGTH, NOVALUE, NOVALUE, rastflags },
+    { "\\reverse",   ISREVERSE,  NOVALUE, NOVALUE, rastflags },
+    { "\\reversefg", ISREVERSE,        1, NOVALUE, rastflags },
+    { "\\reversebg", ISREVERSE,        2, NOVALUE, rastflags },
+    { "\\color",     ISCOLOR,    NOVALUE, NOVALUE, rastflags },
+    { "\\red",       ISCOLOR,          1, NOVALUE, rastflags },
+    { "\\green",     ISCOLOR,          2, NOVALUE, rastflags },
+    { "\\blue",      ISCOLOR,          3, NOVALUE, rastflags },
+    { "\\black",     ISCOLOR,          0, NOVALUE, rastflags },
+    { "\\white",     ISCOLOR,          7, NOVALUE, rastflags },
     /* --- accents --- */
-    { "\\vec",  VECACCENT,    1,      0, (HANDLER)(rastaccent) },
-    { "\\widevec", VECACCENT, 1,      0, (HANDLER)(rastaccent) },
-    { "\\bar",  BARACCENT,    1,      0, (HANDLER)(rastaccent) },
-    { "\\widebar", BARACCENT, 1,      0, (HANDLER)(rastaccent) },
-    { "\\hat",  HATACCENT,    1,      0, (HANDLER)(rastaccent) },
-    { "\\widehat", HATACCENT, 1,      0, (HANDLER)(rastaccent) },
-    { "\\tilde", TILDEACCENT, 1,      0, (HANDLER)(rastaccent) },
-    { "\\widetilde", TILDEACCENT, 1,    0, (HANDLER)(rastaccent) },
-    { "\\dot",  DOTACCENT,    1,      0, (HANDLER)(rastaccent) },
-    { "\\widedot", DOTACCENT, 1,      0, (HANDLER)(rastaccent) },
-    { "\\ddot", DDOTACCENT,   1,      0, (HANDLER)(rastaccent) },
-    { "\\wideddot", DDOTACCENT, 1,      0, (HANDLER)(rastaccent) },
+    { "\\vec",  VECACCENT,    1,      0, rastaccent },
+    { "\\widevec", VECACCENT, 1,      0, rastaccent },
+    { "\\bar",  BARACCENT,    1,      0, rastaccent },
+    { "\\widebar", BARACCENT, 1,      0, rastaccent },
+    { "\\hat",  HATACCENT,    1,      0, rastaccent },
+    { "\\widehat", HATACCENT, 1,      0, rastaccent },
+    { "\\tilde", TILDEACCENT, 1,      0, rastaccent },
+    { "\\widetilde", TILDEACCENT, 1,    0, rastaccent },
+    { "\\dot",  DOTACCENT,    1,      0, rastaccent },
+    { "\\widedot", DOTACCENT, 1,      0, rastaccent },
+    { "\\ddot", DDOTACCENT,   1,      0, rastaccent },
+    { "\\wideddot", DDOTACCENT, 1,      0, rastaccent },
     /* --- math functions --- */
-    { "\\arccos",   1,   0, NOVALUE, (HANDLER)(rastmathfunc) },
-    { "\\arcsin",   2,   0, NOVALUE, (HANDLER)(rastmathfunc) },
-    { "\\arctan",   3,   0, NOVALUE, (HANDLER)(rastmathfunc) },
-    { "\\arg",      4,   0, NOVALUE, (HANDLER)(rastmathfunc) },
-    { "\\cos",      5,   0, NOVALUE, (HANDLER)(rastmathfunc) },
-    { "\\cosh",     6,   0, NOVALUE, (HANDLER)(rastmathfunc) },
-    { "\\cot",      7,   0, NOVALUE, (HANDLER)(rastmathfunc) },
-    { "\\coth",     8,   0, NOVALUE, (HANDLER)(rastmathfunc) },
-    { "\\csc",      9,   0, NOVALUE, (HANDLER)(rastmathfunc) },
-    { "\\deg",      10,  0, NOVALUE, (HANDLER)(rastmathfunc) },
-    { "\\det",      11,  1, NOVALUE, (HANDLER)(rastmathfunc) },
-    { "\\dim",      12,  0, NOVALUE, (HANDLER)(rastmathfunc) },
-    { "\\exp",      13,  0, NOVALUE, (HANDLER)(rastmathfunc) },
-    { "\\gcd",      14,  1, NOVALUE, (HANDLER)(rastmathfunc) },
-    { "\\hom",      15,  0, NOVALUE, (HANDLER)(rastmathfunc) },
-    { "\\inf",      16,  1, NOVALUE, (HANDLER)(rastmathfunc) },
-    { "\\ker",      17,  0, NOVALUE, (HANDLER)(rastmathfunc) },
-    { "\\lg",       18,  0, NOVALUE, (HANDLER)(rastmathfunc) },
-    { "\\lim",      19,  1, NOVALUE, (HANDLER)(rastmathfunc) },
-    { "\\liminf",   20,  1, NOVALUE, (HANDLER)(rastmathfunc) },
-    { "\\limsup",   21,  1, NOVALUE, (HANDLER)(rastmathfunc) },
-    { "\\ln",       22,  0, NOVALUE, (HANDLER)(rastmathfunc) },
-    { "\\log",      23,  0, NOVALUE, (HANDLER)(rastmathfunc) },
-    { "\\max",      24,  1, NOVALUE, (HANDLER)(rastmathfunc) },
-    { "\\min",      25,  1, NOVALUE, (HANDLER)(rastmathfunc) },
-    { "\\Pr",       26,  1, NOVALUE, (HANDLER)(rastmathfunc) },
-    { "\\sec",      27,  0, NOVALUE, (HANDLER)(rastmathfunc) },
-    { "\\sin",      28,  0, NOVALUE, (HANDLER)(rastmathfunc) },
-    { "\\sinh",     29,  0, NOVALUE, (HANDLER)(rastmathfunc) },
-    { "\\sup",      30,  1, NOVALUE, (HANDLER)(rastmathfunc) },
-    { "\\tan",      31,  0, NOVALUE, (HANDLER)(rastmathfunc) },
-    { "\\tanh",     32,  0, NOVALUE, (HANDLER)(rastmathfunc) },
-    { "\\tr",       33,  0, NOVALUE, (HANDLER)(rastmathfunc) },
-    { "\\pmod",     34,  0, NOVALUE, (HANDLER)(rastmathfunc) },
+    { "\\arccos",   1,   0, NOVALUE, rastmathfunc },
+    { "\\arcsin",   2,   0, NOVALUE, rastmathfunc },
+    { "\\arctan",   3,   0, NOVALUE, rastmathfunc },
+    { "\\arg",      4,   0, NOVALUE, rastmathfunc },
+    { "\\cos",      5,   0, NOVALUE, rastmathfunc },
+    { "\\cosh",     6,   0, NOVALUE, rastmathfunc },
+    { "\\cot",      7,   0, NOVALUE, rastmathfunc },
+    { "\\coth",     8,   0, NOVALUE, rastmathfunc },
+    { "\\csc",      9,   0, NOVALUE, rastmathfunc },
+    { "\\deg",      10,  0, NOVALUE, rastmathfunc },
+    { "\\det",      11,  1, NOVALUE, rastmathfunc },
+    { "\\dim",      12,  0, NOVALUE, rastmathfunc },
+    { "\\exp",      13,  0, NOVALUE, rastmathfunc },
+    { "\\gcd",      14,  1, NOVALUE, rastmathfunc },
+    { "\\hom",      15,  0, NOVALUE, rastmathfunc },
+    { "\\inf",      16,  1, NOVALUE, rastmathfunc },
+    { "\\ker",      17,  0, NOVALUE, rastmathfunc },
+    { "\\lg",       18,  0, NOVALUE, rastmathfunc },
+    { "\\lim",      19,  1, NOVALUE, rastmathfunc },
+    { "\\liminf",   20,  1, NOVALUE, rastmathfunc },
+    { "\\limsup",   21,  1, NOVALUE, rastmathfunc },
+    { "\\ln",       22,  0, NOVALUE, rastmathfunc },
+    { "\\log",      23,  0, NOVALUE, rastmathfunc },
+    { "\\max",      24,  1, NOVALUE, rastmathfunc },
+    { "\\min",      25,  1, NOVALUE, rastmathfunc },
+    { "\\Pr",       26,  1, NOVALUE, rastmathfunc },
+    { "\\sec",      27,  0, NOVALUE, rastmathfunc },
+    { "\\sin",      28,  0, NOVALUE, rastmathfunc },
+    { "\\sinh",     29,  0, NOVALUE, rastmathfunc },
+    { "\\sup",      30,  1, NOVALUE, rastmathfunc },
+    { "\\tan",      31,  0, NOVALUE, rastmathfunc },
+    { "\\tanh",     32,  0, NOVALUE, rastmathfunc },
+    { "\\tr",       33,  0, NOVALUE, rastmathfunc },
+    { "\\pmod",     34,  0, NOVALUE, rastmathfunc },
     /* --- flush -- recognized but not yet handled by mimeTeX --- */
-    { "\\nooperation", 0, NOVALUE, NOVALUE, (HANDLER)(rastnoop) },
-    { "\\bigskip",   0, NOVALUE, NOVALUE, (HANDLER)(rastnoop) },
-    { "\\phantom",   1, NOVALUE, NOVALUE, (HANDLER)(rastnoop) },
-    { "\\nocaching", 0, NOVALUE, NOVALUE, (HANDLER)(rastnoop) },
-    { "\\noconten",  0, NOVALUE, NOVALUE, (HANDLER)(rastnoop) },
-    { "\\nonumber",  0, NOVALUE, NOVALUE, (HANDLER)(rastnoop) },
-    /* { "\\!",      0, NOVALUE,NOVALUE,  (HANDLER)(rastnoop) }, */
-    { "\\cydot",     0, NOVALUE, NOVALUE, (HANDLER)(rastnoop) },
+    { "\\nooperation", 0, NOVALUE, NOVALUE, rastnoop },
+    { "\\bigskip",   0, NOVALUE, NOVALUE, rastnoop },
+    { "\\phantom",   1, NOVALUE, NOVALUE, rastnoop },
+    { "\\nocaching", 0, NOVALUE, NOVALUE, rastnoop },
+    { "\\noconten",  0, NOVALUE, NOVALUE, rastnoop },
+    { "\\nonumber",  0, NOVALUE, NOVALUE, rastnoop },
+    /* { "\\!",      0, NOVALUE,NOVALUE,  rastnoop }, */
+    { "\\cydot",     0, NOVALUE, NOVALUE, rastnoop },
     { NULL,     -999,   -999,   -999,       NULL }
 };
 
@@ -2094,4 +2025,78 @@ mathchardef_table symtables[16] = {
     { NOVALUE,  NULL             }
 };
 
-int tzdelta = 0;
+int mimetex_ctx_init(mimetex_ctx *mctx)
+{
+    int i;
+    mctx->msgfp = NULL;
+    mctx->msglevel = MSGLEVEL;
+    /* ------------------------------------------------------------
+    adjustable default values
+    ------------------------------------------------------------ */
+    /* --- variables for anti-aliasing parameters --- */
+    mctx->centerwt    = 8;    /*lowpass matrix center pixel wt */
+    mctx->adjacentwt  = 2;  /*lowpass matrix adjacent pixel wt*/
+    mctx->cornerwt    = 1;    /*lowpass matrix corner pixel wt */
+    mctx->minadjacent = 6;  /* darken if>=adjacent pts black*/
+    mctx->maxadjacent = 8;  /* darken if<=adjacent pts black */
+    mctx->weightnum   = 1;      /* font wt, */
+    mctx->maxaaparams = 4;    /* #entries in table */
+    /* set shrinkfactor */
+    for (i = 1; i <= 51; i++)
+        mctx->patternnumcount0[i] = mctx->patternnumcount1[i] = 0;
+
+    mctx->ispatternnumcount = 1;      /* true to accumulate counts */
+    mctx->warninglevel = WARNINGLEVEL;  /* warning level */
+
+    /* ------------------------------------------------------------
+    control flags and values
+    ------------------------------------------------------------ */
+    mctx->recurlevel = 0;     /* inc/decremented in rasterize() */
+    mctx->scriptlevel = 0;    /* inc/decremented in rastlimits() */
+    mctx->isstring = 0;       /*pixmap is ascii string, not raster*/
+    mctx->isligature = 0;     /* true if ligature found */
+    mctx->subexprptr = (char *)NULL;  /* ptr within expression to subexpr*/
+    mctx->isdisplaystyle = 1;     /* displaystyle mode (forced if 2) */
+    mctx->ispreambledollars = 0;  /* displaystyle mode set by $$...$$ */
+    mctx->fontnum = 0;        /* cal=1,scr=2,rm=3,it=4,bb=5,bf=6 */
+    mctx->fontsize = NORMALSIZE;  /* current size */
+    mctx->displaysize = DISPLAYSIZE;  /* use \displaystyle when mctx->fontsize>=*/
+    mctx->shrinkfactor = shrinkfactors[mctx->fontsize];
+    mctx->unitlength = 1.0;    /* #pixels per unit (may be <1.0) */
+    mctx->isnocatspace = 0;   /* >0 to not add space in rastcat()*/
+    mctx->smashmargin = SMASHMARGIN;  /* minimum "smash" margin */
+    mctx->mathsmashmargin = SMASHMARGIN; /* needed for \text{if $n-m$ even}*/
+    mctx->issmashdelta = 1;   /* true if mctx->smashmargin is a delta */
+    mctx->isexplicitsmash = 0;    /* true if \smash explicitly given */
+    mctx->smashcheck = SMASHCHECK;  /* check if terms safe to smash */
+    mctx->isscripted = 0;     /* is (lefthand) term text-scripted*/
+    mctx->isdelimscript = 0;      /* is \right delim text-scripted */
+    mctx->issmashokay = 0;    /*is leading char okay for smashing*/
+    mctx->blanksignal = BLANKSIGNAL;  /*rastsmash signal right-hand blank*/
+    mctx->blanksymspace = 0;      /* extra (or too much) space wanted*/
+    mctx->istransparent = 1;      /* true sets background transparent*/
+    mctx->fgred = 0;
+    mctx->fggreen = 0;
+    mctx->fgblue = 0;      /* fg r,g,b */
+    mctx->bgred = 255;
+    mctx->bggreen = 255;
+    mctx->bgblue = 255;      /* bg r,g,b */
+    mctx->gammacorrection = 1.25; /* gamma correction */
+    mctx->isblackonwhite = 1; /*1=black on white,0=reverse*/
+    mctx->aaalgorithm = 1;  /* for lp, 1=aalowpass, 2 =aapnm */
+    mctx->maxfollow = 8;  /* aafollowline() maxturn parameter*/
+    mctx->fgalias = 1;
+    mctx->fgonly = 0;
+    mctx->bgalias = 0;
+    mctx->bgonly = 0;       /* aapnm() params */
+    mctx->workingparam = (int *)NULL;  /* working parameter */
+    mctx->workingbox = (subraster *)NULL; /*working subraster box*/
+    mctx->isreplaceleft = 0;      /* true to replace mctx->leftexpression */
+    mctx->leftexpression = (subraster *)NULL; /*rasterized so far*/
+    mctx->leftsymdef = NULL; /* mathchardef for preceding symbol*/
+    mctx->fraccenterline = NOVALUE; /* baseline for punct. after \frac */
+    mctx->fonttable = aafonttable;
+    return 0;
+}
+
+

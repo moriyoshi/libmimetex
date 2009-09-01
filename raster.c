@@ -47,7 +47,7 @@
  * Notes:
  * ======================================================================= */
 /* --- entry point --- */
-raster  *new_raster(int width, int height, int pixsz)
+raster  *new_raster(mimetex_ctx *mctx, int width, int height, int pixsz)
 {
     /* ------------------------------------------------------------
     Allocations and Declarations
@@ -59,7 +59,7 @@ raster  *new_raster(int width, int height, int pixsz)
     /* #bytes needed for pixmap */
     int nbytes = pixsz * bitmapsz(width, height);
     /* pixmap filler */
-    int filler = (isstring ? ' ' : 0);
+    int filler = (mctx->isstring ? ' ' : 0);
     /* in case pixmap malloc() fails */
     int delete_raster();
     /* padding bytes */
@@ -67,18 +67,18 @@ raster  *new_raster(int width, int height, int pixsz)
     /* ------------------------------------------------------------
     allocate and initialize raster struct and embedded bitmap
     ------------------------------------------------------------ */
-    if (msgfp != NULL && msglevel >= 9999) {
-        fprintf(msgfp, "new_raster(%d,%d,%d)> entry point\n",
+    if (mctx->msgfp != NULL && mctx->msglevel >= 9999) {
+        fprintf(mctx->msgfp, "new_raster(%d,%d,%d)> entry point\n",
                 width, height, pixsz);
-        fflush(msgfp);
+        fflush(mctx->msgfp);
     }
     /* --- allocate and initialize raster struct --- */
     /* malloc raster struct */
     rp = (raster *)malloc(sizeof(raster));
-    if (msgfp != NULL && msglevel >= 9999) {
-        fprintf(msgfp, "new_raster> rp=malloc(%d) returned (%s)\n",
+    if (mctx->msgfp != NULL && mctx->msglevel >= 9999) {
+        fprintf(mctx->msgfp, "new_raster> rp=malloc(%d) returned (%s)\n",
                 sizeof(raster), (rp == NULL ? "null ptr" : "success"));
-        fflush(msgfp);
+        fflush(mctx->msgfp);
     }
     if (rp == (raster *)NULL)        /* malloc failed */
         /* return error to caller */
@@ -94,22 +94,22 @@ raster  *new_raster(int width, int height, int pixsz)
     /* init bitmap as null ptr */
     rp->pixmap = (pixbyte *)NULL;
     /* --- allocate and initialize bitmap array --- */
-    if (msgfp != NULL && msglevel >= 9999) {
-        fprintf(msgfp, "new_raster> calling pixmap=malloc(%d)\n",
+    if (mctx->msgfp != NULL && mctx->msglevel >= 9999) {
+        fprintf(mctx->msgfp, "new_raster> calling pixmap=malloc(%d)\n",
                 nbytes);
-        fflush(msgfp);
+        fflush(mctx->msgfp);
     }
     if (nbytes > 0 && nbytes <= pixsz*maxraster)  /* fail if width*height too big*/
         /*bytes for width*height bits*/
         pixmap = (pixbyte *)malloc(nbytes + npadding);
-    if (msgfp != NULL && msglevel >= 9999) {
-        fprintf(msgfp, "new_raster> pixmap=malloc(%d) returned (%s)\n",
+    if (mctx->msgfp != NULL && mctx->msglevel >= 9999) {
+        fprintf(mctx->msgfp, "new_raster> pixmap=malloc(%d) returned (%s)\n",
                 nbytes, (pixmap == NULL ? "null ptr" : "success"));
-        fflush(msgfp);
+        fflush(mctx->msgfp);
     }
     if (pixmap == (pixbyte *)NULL) { /* malloc failed */
         /* so free everything */
-        delete_raster(rp);
+        delete_raster(mctx, rp);
         /* reset pointer */
         rp = (raster *)NULL;
         goto end_of_job;
@@ -124,10 +124,10 @@ raster  *new_raster(int width, int height, int pixsz)
     Back to caller with address of raster struct, or NULL ptr for any error.
     ------------------------------------------------------------ */
 end_of_job:
-    if (msgfp != NULL && msglevel >= 9999) {
-        fprintf(msgfp, "new_raster(%d,%d,%d)> returning (%s)\n",
+    if (mctx->msgfp != NULL && mctx->msglevel >= 9999) {
+        fprintf(mctx->msgfp, "new_raster(%d,%d,%d)> returning (%s)\n",
                 width, height, pixsz, (rp == NULL ? "null ptr" : "success"));
-        fflush(msgfp);
+        fflush(mctx->msgfp);
     }
     /* back to caller with raster */
     return (rp);
@@ -147,7 +147,7 @@ end_of_job:
  * Notes:
  * ======================================================================= */
 /* --- entry point --- */
-int delete_raster(raster *rp)
+int delete_raster(mimetex_ctx *mctx, raster *rp)
 {
     /* ------------------------------------------------------------
     free raster bitmap and struct
@@ -175,7 +175,7 @@ int delete_raster(raster *rp)
  * Notes:     o
  * ======================================================================= */
 /* --- entry point --- */
-raster  *rastcpy(raster *rp)
+raster *rastcpy(mimetex_ctx *mctx, raster *rp)
 {
     /* ------------------------------------------------------------
     Allocations and Declarations
@@ -192,7 +192,7 @@ raster  *rastcpy(raster *rp)
     ------------------------------------------------------------ */
     /* --- allocate copied raster with same width,height, and copy bitmap --- */
     if (rp != NULL)              /* nothing to copy if ptr null */
-        if ((newrp = new_raster(width, height, pixsz)) /*same width,height in copy*/
+        if ((newrp = new_raster(mctx, width, height, pixsz)) /*same width,height in copy*/
                 !=   NULL)                /* check that allocate succeeded */
             /* fill copied raster pixmap */
             memcpy(newrp->pixmap, rp->pixmap, nbytes);
@@ -213,7 +213,7 @@ raster  *rastcpy(raster *rp)
  *      a hat is <, etc.
  * ======================================================================= */
 /* --- entry point --- */
-raster  *rastrot(raster *rp)
+raster  *rastrot(mimetex_ctx *mctx, raster *rp)
 {
     /* ------------------------------------------------------------
     Allocations and Declarations
@@ -228,7 +228,7 @@ raster  *rastrot(raster *rp)
     allocate rotated raster and fill it
     ------------------------------------------------------------ */
     /* --- allocate rotated raster with flipped width<-->height --- */
-    if ((rotated = new_raster(height, width, pixsz)) /* flip width,height */
+    if ((rotated = new_raster(mctx, height, width, pixsz)) /* flip width,height */
             !=   NULL)              /* check that allocation succeeded */
         /* --- fill rotated raster --- */
         for (irow = 0; irow < height; irow++)  /* for each row of rp */
@@ -257,7 +257,7 @@ raster  *rastrot(raster *rp)
  * Notes:     o
  * ======================================================================= */
 /* --- entry point --- */
-raster  *rastref(raster *rp, int axis)
+raster  *rastref(mimetex_ctx *mctx, raster *rp, int axis)
 {
     /* ------------------------------------------------------------
     Allocations and Declarations
@@ -273,7 +273,7 @@ raster  *rastref(raster *rp, int axis)
     ------------------------------------------------------------ */
     /* --- allocate reflected raster with same width, height --- */
     if (axis == 1 || axis == 2)      /* first validate axis arg */
-        if ((reflected = new_raster(width, height, pixsz)) /* same width, height */
+        if ((reflected = new_raster(mctx, width, height, pixsz)) /* same width, height */
                 !=   NULL)                 /* check that allocation succeeded */
             /* --- fill reflected raster --- */
             for (irow = 0; irow < height; irow++)  /* for each row of rp */
@@ -310,7 +310,7 @@ raster  *rastref(raster *rp, int axis)
  * Notes:
  * ======================================================================= */
 /* --- entry point --- */
-int rastput(raster *target, raster *source,
+int rastput(mimetex_ctx *mctx, raster *target, raster *source,
             int top, int left, int isopaque)
 {
     /* ------------------------------------------------------------
@@ -339,11 +339,11 @@ int rastput(raster *target, raster *source,
                 int svalue = getpixel(source, irow, icol);
                 /* bump target pixel */
                 ++tpix;
-                if (msgfp != NULL && msglevel >= 9999) { /* debugging output */
-                    fprintf(msgfp, "rastput> tpix,ntpix=%d,%d top,irow,theight=%d,%d,%d "
+                if (mctx->msgfp != NULL && mctx->msglevel >= 9999) { /* debugging output */
+                    fprintf(mctx->msgfp, "rastput> tpix,ntpix=%d,%d top,irow,theight=%d,%d,%d "
                             "left,icol,twidth=%d,%d,%d\n", tpix, ntpix, top, irow, theight,
                             left, icol, twidth);
-                    fflush(msgfp);
+                    fflush(mctx->msgfp);
                 }
                 if (tpix >= ntpix                /* bounds check failed */
                         || (isstrict && (irow + top >= theight || icol + left >= twidth))) {
@@ -390,7 +390,7 @@ end_of_job:
  * Notes:
  * ======================================================================= */
 /* --- entry point --- */
-subraster *rastcompose(subraster *sp1, subraster *sp2, int offset2,
+subraster *rastcompose(mimetex_ctx *mctx, subraster *sp1, subraster *sp2, int offset2,
                        int isalign, int isfree)
 {
     /* ------------------------------------------------------------
@@ -437,7 +437,7 @@ subraster *rastcompose(subraster *sp1, subraster *sp2, int offset2,
     allocate concatted composite subraster
     ------------------------------------------------------------ */
     /* --- allocate returned subraster (and then initialize it) --- */
-    if ((sp = new_subraster(width, height, pixsz)) /* allocate new subraster */
+    if ((sp = new_subraster(mctx, width, height, pixsz)) /* allocate new subraster */
             /* failed, so quit */
             == (subraster *)NULL) goto end_of_job;
     /* --- initialize subraster parameters --- */
@@ -455,13 +455,13 @@ subraster *rastcompose(subraster *sp1, subraster *sp2, int offset2,
     ------------------------------------------------------------ */
     if (isalign) {
         /*underlying*/
-        rastput(rp, sp1->image, base - base1, (width - width1) / 2, 1);
-        rastput(rp, sp2->image, base - base2,           /*overlaid*/
+        rastput(mctx, rp, sp1->image, base - base1, (width - width1) / 2, 1);
+        rastput(mctx, rp, sp2->image, base - base2,           /*overlaid*/
                 (width - width2) / 2 + offset2, 0);
     } else {
         /*underlying*/
-        rastput(rp, sp1->image, base - base1, (width - width1) / 2, 1);
-        rastput(rp, sp2->image, (height - height2) / 2,     /*overlaid*/
+        rastput(mctx, rp, sp1->image, base - base1, (width - width1) / 2, 1);
+        rastput(mctx, rp, sp2->image, (height - height2) / 2,     /*overlaid*/
                 (width - width2) / 2 + offset2, 0);
     }
     /* ------------------------------------------------------------
@@ -469,8 +469,8 @@ subraster *rastcompose(subraster *sp1, subraster *sp2, int offset2,
     ------------------------------------------------------------ */
     if (isfree > 0) {            /* caller wants input freed */
         /* free sp1 */
-        if (isfree == 1 || isfree > 2) delete_subraster(sp1);
-        if (isfree >= 2) delete_subraster(sp2);
+        if (isfree == 1 || isfree > 2) delete_subraster(mctx, sp1);
+        if (isfree >= 2) delete_subraster(mctx, sp2);
     }      /* and/or sp2 */
     /* ------------------------------------------------------------
     Back to caller with pointer to concatted subraster or with null for error
@@ -499,21 +499,16 @@ end_of_job:
  * Notes:
  * ======================================================================= */
 /* --- entry point --- */
-subraster *rastcat(subraster *sp1, subraster *sp2, int isfree)
+subraster *rastcat(mimetex_ctx *mctx, subraster *sp1, subraster *sp2, int isfree)
 {
     /* ------------------------------------------------------------
     Allocations and Declarations
     ------------------------------------------------------------ */
     /* returned subraster */
-    subraster *new_subraster(), *sp = (subraster *)NULL;
+    subraster *sp = (subraster *)NULL;
     /* new concatted raster */
     raster  *rp = (raster *)NULL;
     /* in case isfree non-zero */
-    int delete_subraster();
-    /*place sp1,sp2 in concatted raster*/
-    int rastput();
-    /* debugging display */
-    int type_raster();
     int base1   = sp1->baseline,    /*baseline for left-hand subraster*/
         height1 = (sp1->image)->height, /* height for left-hand subraster */
         width1  = (sp1->image)->width,  /* width for left-hand subraster */
@@ -526,12 +521,12 @@ subraster *rastcat(subraster *sp1, subraster *sp2, int isfree)
         type2   = sp2->type; /* image type for right-hand */
     /*concatted sp1||sp2 composite*/
     int height = 0, width = 0, pixsz = 0, base = 0;
-    int issmash = (smashmargin != 0 ? 1 : 0), /* true to "squash" sp1||sp2 */
+    int issmash = (mctx->smashmargin != 0 ? 1 : 0), /* true to "squash" sp1||sp2 */
         isopaque = (issmash ? 0 : 1),   /* not oppaque if smashing */
         rastsmash(), isblank = 0, nsmash = 0, /* #cols to smash */
-        oldsmashmargin = smashmargin,   /* save original smashmargin */
-        oldblanksymspace = blanksymspace, /* save original blanksymspace */
-        oldnocatspace = isnocatspace; /* save original isnocatspace */
+        oldsmashmargin = mctx->smashmargin,   /* save original mctx->smashmargin */
+        oldblanksymspace = mctx->blanksymspace, /* save original mctx->blanksymspace */
+        oldnocatspace = mctx->isnocatspace; /* save original mctx->isnocatspace */
     mathchardef *symdef1 = sp1->symdef, /*mathchardef of last left-hand char*/
                 *symdef2 = sp2->symdef; /* mathchardef of right-hand char */
 
@@ -543,25 +538,25 @@ subraster *rastcat(subraster *sp1, subraster *sp2, int isfree)
         smash2 = (symdef2 != NULL) &&
             (class2 == ORDINARY || class2 == VARIABLE || class2 == OPENING
                 || class2 == CLOSING || class2 == PUNCTION),
-        space = fontsize / 2 + 1; /* #cols between sp1 and sp2 */
+        space = mctx->fontsize / 2 + 1; /* #cols between sp1 and sp2 */
     int isfrac = (type1 == FRACRASTER   /* sp1 is a \frac */
               && class2 == PUNCTION); /* and sp2 is punctuation */
     /* ------------------------------------------------------------
     Initialization
     ------------------------------------------------------------ */
     /* --- determine inter-character space from character class --- */
-    if (!isstring)
+    if (!mctx->isstring)
         /* space */
-        space = max2(2, (symspace[class1][class2] + fontsize - 3));
+        space = max2(2, (symspace[class1][class2] + mctx->fontsize - 3));
     else
         /* space for ascii string */
         space = 1;
-    if (isnocatspace > 0) {
+    if (mctx->isnocatspace > 0) {
         /* spacing explicitly turned off */
         /* reset space */
         space = 0;
-         /* and decrement isnocatspace flag */
-        isnocatspace--;
+         /* and decrement mctx->isnocatspace flag */
+        mctx->isnocatspace--;
     }
     /*implicitly turn off spacing*/
     if (0 && sp1->type == BLANKSIGNAL) space = 0;
@@ -569,35 +564,35 @@ subraster *rastcat(subraster *sp1, subraster *sp2, int isfree)
         /* no extra space between spaces */
         space = 0;
     if (sp2->type != BLANKSIGNAL)        /* not a blank space signal */
-        if (blanksymspace != 0) {          /* and we have a space adjustment */
+        if (mctx->blanksymspace != 0) {          /* and we have a space adjustment */
             /* adjust as much as possible */
-            space = max2(0, space + blanksymspace);
-            blanksymspace = 0;
+            space = max2(0, space + mctx->blanksymspace);
+            mctx->blanksymspace = 0;
         }        /* and reset adjustment */
-    if (msgfp != NULL && msglevel >= 999) { /* display space results */
-        fprintf(msgfp, "rastcat> space=%d, blanksymspace=%d, isnocatspace=%d\n",
+    if (mctx->msgfp != NULL && mctx->msglevel >= 999) { /* display space results */
+        fprintf(mctx->msgfp, "rastcat> space=%d, mctx->blanksymspace=%d, mctx->isnocatspace=%d\n",
                 space, oldblanksymspace, oldnocatspace);
-        fflush(msgfp);
+        fflush(mctx->msgfp);
     }
     /* --- determine smash --- */
-    if (!isstring && !isfrac) {
+    if (!mctx->isstring && !isfrac) {
         /* don't smash strings or \frac's */
         if (issmash) {              /* raster smash wanted */
-            int  maxsmash = rastsmash(sp1, sp2), /* calculate max smash space */
+            int  maxsmash = rastsmash(mctx, sp1, sp2), /* calculate max smash space */
                             /* init margin without delta */
-                            margin = smashmargin;
+                            margin = mctx->smashmargin;
             if ((1 && smash1 && smash2)       /* concatanating two chars */
                     || (1 && type1 != IMAGERASTER && type2 != IMAGERASTER
                         && type1 != FRACRASTER  && type2 != FRACRASTER))
                 /*maxsmash = 0;*/          /* turn off smash */
-                /* force small smashmargin */
+                /* force small mctx->smashmargin */
                 margin = max2(space - 1, 0);
             else
             /* adjust for delta if images */
-                if (issmashdelta)       /* smashmargin is a delta value */
+                if (mctx->issmashdelta)       /* mctx->smashmargin is a delta value */
                     /* add displaystyle base to margin */
-                    margin += fontsize;
-            if (maxsmash == blanksignal)      /* sp2 is intentional blank */
+                    margin += mctx->fontsize;
+            if (maxsmash == mctx->blanksignal)      /* sp2 is intentional blank */
                 /* set blank flag signal */
                 isblank = 1;
             else
@@ -605,17 +600,17 @@ subraster *rastcat(subraster *sp1, subraster *sp2, int isfree)
                 if (maxsmash > margin)          /* enough space for adjustment */
                     /* make adjustment */
                     nsmash = maxsmash - margin;
-            if (msgfp != NULL && msglevel >= 99) { /* display smash results */
-                fprintf(msgfp, "rastcat> maxsmash=%d, margin=%d, nsmash=%d\n",
+            if (mctx->msgfp != NULL && mctx->msglevel >= 99) { /* display smash results */
+                fprintf(mctx->msgfp, "rastcat> maxsmash=%d, margin=%d, nsmash=%d\n",
                         maxsmash, margin, nsmash);
-                fprintf(msgfp, "rastcat> type1=%d,2=%d, class1=%d,2=%d\n", type1, type2,
+                fprintf(mctx->msgfp, "rastcat> type1=%d,2=%d, class1=%d,2=%d\n", type1, type2,
                         (symdef1 == NULL ? -999 : class1), (symdef2 == NULL ? -999 : class2));
-                fflush(msgfp);
+                fflush(mctx->msgfp);
             }
         } /* --- end-of-if(issmash) --- */
     }
     /* --- determine height, width and baseline of composite raster --- */
-    if (!isstring) {
+    if (!mctx->isstring) {
         height = max2(base1 + 1, base2 + 1)   /* max height above baseline */
                  /*+ max descending below*/
                  + max2(height1 - base1 - 1, height2 - base2 - 1);
@@ -634,41 +629,41 @@ subraster *rastcat(subraster *sp1, subraster *sp2, int isfree)
     pixsz  = max2(pixsz1, pixsz2);
     /* max space above baseline */
     base   = max2(base1, base2);
-    if (msgfp != NULL && msglevel >= 9999) { /* display components */
-        fprintf(msgfp, "rastcat> Left-hand ht,width,pixsz,base = %d,%d,%d,%d\n",
+    if (mctx->msgfp != NULL && mctx->msglevel >= 9999) { /* display components */
+        fprintf(mctx->msgfp, "rastcat> Left-hand ht,width,pixsz,base = %d,%d,%d,%d\n",
                 height1, width1, pixsz1, base1);
         /* display left-hand raster */
-        type_raster(sp1->image, msgfp);
-        fprintf(msgfp, "rastcat> Right-hand ht,width,pixsz,base = %d,%d,%d,%d\n",
+        type_raster(mctx, sp1->image, mctx->msgfp);
+        fprintf(mctx->msgfp, "rastcat> Right-hand ht,width,pixsz,base = %d,%d,%d,%d\n",
                 height2, width2, pixsz2, base2);
         /* display right-hand raster */
-        type_raster(sp2->image, msgfp);
-        fprintf(msgfp,
+        type_raster(mctx, sp2->image, mctx->msgfp);
+        fprintf(mctx->msgfp,
                 "rastcat> Composite ht,width,smash,pixsz,base = %d,%d,%d,%d,%d\n",
                 height, width, nsmash, pixsz, base);
-        fflush(msgfp);
-    }            /* flush msgfp buffer */
+        fflush(mctx->msgfp);
+    }            /* flush mctx->msgfp buffer */
     /* ------------------------------------------------------------
     allocate concatted composite subraster
     ------------------------------------------------------------ */
     /* --- allocate returned subraster (and then initialize it) --- */
-    if (msgfp != NULL && msglevel >= 9999) {
-        fprintf(msgfp, "rastcat> calling new_subraster(%d,%d,%d)\n",
+    if (mctx->msgfp != NULL && mctx->msglevel >= 9999) {
+        fprintf(mctx->msgfp, "rastcat> calling new_subraster(%d,%d,%d)\n",
                 width, height, pixsz);
-        fflush(msgfp);
+        fflush(mctx->msgfp);
     }
-    if ((sp = new_subraster(width, height, pixsz)) /* allocate new subraster */
+    if ((sp = new_subraster(mctx, width, height, pixsz)) /* allocate new subraster */
             == (subraster *)NULL) {         /* failed */
-        if (msgfp != NULL && msglevel >= 1) { /* report failure */
-            fprintf(msgfp, "rastcat> new_subraster(%d,%d,%d) failed\n",
+        if (mctx->msgfp != NULL && mctx->msglevel >= 1) { /* report failure */
+            fprintf(mctx->msgfp, "rastcat> new_subraster(%d,%d,%d) failed\n",
                     width, height, pixsz);
-            fflush(msgfp);
+            fflush(mctx->msgfp);
         }
         goto end_of_job;
     }          /* failed, so quit */
     /* --- initialize subraster parameters --- */
-    /* sp->type = (!isstring?STRINGRASTER:ASCIISTRING); */  /*concatted string*/
-    if (!isstring)
+    /* sp->type = (!mctx->isstring?STRINGRASTER:ASCIISTRING); */  /*concatted string*/
+    if (!mctx->isstring)
         sp->type = /*type2;*//*(type1==type2?type2:IMAGERASTER);*/
             (type2 != CHARASTER ? type2 :
              (type1 != CHARASTER && type1 != BLANKSIGNAL
@@ -682,68 +677,70 @@ subraster *rastcat(subraster *sp1, subraster *sp2, int isfree)
     sp->baseline = base;
     /* rightmost char is sp2 */
     sp->size = sp2->size;
-    if (isblank)                 /* need to propagate blanksignal */
+    if (isblank)                 /* need to propagate mctx->blanksignal */
         /* may not be completely safe??? */
-        sp->type = blanksignal;
+        sp->type = mctx->blanksignal;
     /* --- extract raster from subraster --- */
     /* raster allocated in subraster */
     rp = sp->image;
     /* ------------------------------------------------------------
     overlay sp1 and sp2 in new composite raster
     ------------------------------------------------------------ */
-    if (msgfp != NULL && msglevel >= 9999) {
-        fprintf(msgfp, "rastcat> calling rastput() to concatanate left||right\n");
-        fflush(msgfp);
-    }            /* flush msgfp buffer */
-    if (!isstring) {
-        rastput(rp, sp1->image, base - base1,/* overlay left-hand */
+    if (mctx->msgfp != NULL && mctx->msglevel >= 9999) {
+        fprintf(mctx->msgfp, "rastcat> calling rastput() to concatanate left||right\n");
+        fflush(mctx->msgfp);
+    }            /* flush mctx->msgfp buffer */
+    if (!mctx->isstring) {
+        rastput(mctx, rp, sp1->image, base - base1,/* overlay left-hand */
                 max2(0, nsmash - width1), 1);/* plus any residual smash space */
     } else {
         /*init left string*/
         memcpy(rp->pixmap, (sp1->image)->pixmap, width1 - 1);
     }
-    if (msgfp != NULL && msglevel >= 9999) {
+    if (mctx->msgfp != NULL && mctx->msglevel >= 9999) {
         /* display composite raster */
-        type_raster(sp->image, msgfp);
-        fflush(msgfp);
-    }            /* flush msgfp buffer */
-    if (!isstring) {
+        type_raster(mctx, sp->image, mctx->msgfp);
+        fflush(mctx->msgfp);
+    }            /* flush mctx->msgfp buffer */
+    if (!mctx->isstring) {
         int  fracbase = (isfrac ?     /* baseline for punc after \frac */
                          /*adjust baseline or use original*/
-                         max2(fraccenterline, base2) : base);
-        rastput(rp, sp2->image, fracbase - base2, /* overlay right-hand */
+                         max2(mctx->fraccenterline, base2) : base);
+        rastput(mctx, rp, sp2->image, fracbase - base2, /* overlay right-hand */
                 /* minus any smashed space */
                 max2(0, width1 + space - nsmash), isopaque);
         if (1 && type1 == FRACRASTER  /* we're done with \frac image */
                 &&   type2 != FRACRASTER)        /* unless we have \frac\frac */
             /* so reset centerline signal */
-            fraccenterline = NOVALUE;
-        if (fraccenterline != NOVALUE)    /* sp2 is a fraction */
-            fraccenterline += (base - base2);
+            mctx->fraccenterline = NOVALUE;
+        if (mctx->fraccenterline != NOVALUE)    /* sp2 is a fraction */
+            mctx->fraccenterline += (base - base2);
     }  /* so adjust its centerline */
     else {
         strcpy((char *)(rp->pixmap) + width1 - 1 + space, (char *)((sp2->image)->pixmap));
         ((char *)(rp->pixmap))[width1+width2+space-2] = '\000';
     } /*null-term*/
-    if (msgfp != NULL && msglevel >= 9999) {
+    if (mctx->msgfp != NULL && mctx->msglevel >= 9999) {
         /* display composite raster */
-        type_raster(sp->image, msgfp);
-        fflush(msgfp);
-    }            /* flush msgfp buffer */
+        type_raster(mctx, sp->image, mctx->msgfp);
+        fflush(mctx->msgfp);
+    }            /* flush mctx->msgfp buffer */
     /* ------------------------------------------------------------
     free input if requested
     ------------------------------------------------------------ */
     if (isfree > 0) {            /* caller wants input freed */
         /* free sp1 */
-        if (isfree == 1 || isfree > 2) delete_subraster(sp1);
-        if (isfree >= 2) delete_subraster(sp2);
+        if (isfree == 1 || isfree > 2)
+            delete_subraster(mctx, sp1);
+        if (isfree >= 2)
+            delete_subraster(mctx, sp2);
     }      /* and/or sp2 */
     /* ------------------------------------------------------------
     Back to caller with pointer to concatted subraster or with null for error
     ------------------------------------------------------------ */
 end_of_job:
-    /* reset original smashmargin */
-    smashmargin = oldsmashmargin;
+    /* reset original mctx->smashmargin */
+    mctx->smashmargin = oldsmashmargin;
     /* back with subraster or null ptr */
     return (sp);
 } /* --- end-of-function rastcat() --- */
@@ -774,14 +771,14 @@ end_of_job:
  * Notes:
  * ======================================================================= */
 /* --- entry point --- */
-subraster *rastack(subraster *sp1, subraster *sp2,
+subraster *rastack(mimetex_ctx *mctx, subraster *sp1, subraster *sp2,
                    int base, int space, int iscenter, int isfree)
 {
     /* ------------------------------------------------------------
     Allocations and Declarations
     ------------------------------------------------------------ */
     /* returned subraster */
-    subraster *new_subraster(), *sp = (subraster *)NULL;
+    subraster *sp = (subraster *)NULL;
     /* new stacked raster in sp */
     raster  *rp = (raster *)NULL;
     /* in case isfree non-zero */
@@ -815,7 +812,7 @@ subraster *rastack(subraster *sp1, subraster *sp2,
     allocate stacked composite subraster (with embedded raster)
     ------------------------------------------------------------ */
     /* --- allocate returned subraster (and then initialize it) --- */
-    if ((sp = new_subraster(width, height, pixsz)) /* allocate new subraster */
+    if ((sp = new_subraster(mctx, width, height, pixsz)) /* allocate new subraster */
             /* failed, so quit */
             == (subraster *)NULL) goto end_of_job;
     /* --- initialize subraster parameters --- */
@@ -835,21 +832,23 @@ subraster *rastack(subraster *sp1, subraster *sp2,
     ------------------------------------------------------------ */
     if (iscenter == 1) {         /* center both sp1 and sp2 */
         /* overlay upper */
-        rastput(rp, sp2->image, 0, (width - width2) / 2, 1);
-        rastput(rp, sp1->image, height2 + space, (width - width1) / 2, 1);
+        rastput(mctx, rp, sp2->image, 0, (width - width2) / 2, 1);
+        rastput(mctx, rp, sp1->image, height2 + space, (width - width1) / 2, 1);
     } /*lower*/
     else {                  /* left-justify both sp1 and sp2 */
         /* overlay upper */
-        rastput(rp, sp2->image, 0, 0, 1);
-        rastput(rp, sp1->image, height2 + space, 0, 1);
+        rastput(mctx, rp, sp2->image, 0, 0, 1);
+        rastput(mctx, rp, sp1->image, height2 + space, 0, 1);
     } /*lower*/
     /* ------------------------------------------------------------
     free input if requested
     ------------------------------------------------------------ */
     if (isfree > 0) {            /* caller wants input freed */
         /* free sp1 */
-        if (isfree == 1 || isfree > 2) delete_subraster(sp1);
-        if (isfree >= 2) delete_subraster(sp2);
+        if (isfree == 1 || isfree > 2)
+            delete_subraster(mctx, sp1);
+        if (isfree >= 2)
+            delete_subraster(mctx, sp2);
     } /* and/or sp2 */
     /* ------------------------------------------------------------
     Back to caller with pointer to stacked subraster or with null for error
@@ -884,7 +883,7 @@ end_of_job:
  *      But recent changes haven't been tested/exercised.
  * ======================================================================= */
 /* --- entry point --- */
-raster  *rastile(subraster *tiles, int ntiles)
+raster  *rastile(mimetex_ctx *mctx, subraster *tiles, int ntiles)
 {
     /* ------------------------------------------------------------
     Allocations and Declarations
@@ -924,14 +923,14 @@ raster  *rastile(subraster *tiles, int ntiles)
     allocate composite raster, and embed tiles[] within it
     ------------------------------------------------------------ */
     /* --- allocate composite raster --- */
-    if ((composite = new_raster(width, height, pixsz))  /*allocate composite raster*/
+    if ((composite = new_raster(mctx, width, height, pixsz))  /*allocate composite raster*/
             /* and quit if failed */
             == (raster *)NULL) goto end_of_job;
     /* --- embed tiles[] in composite --- */
     for (itile = 0; itile < ntiles; itile++) {
         /* ptr to current tile */
         subraster *tile = &(tiles[itile]);
-        rastput(composite, tile->image,         /* overlay tile image at...*/
+        rastput(mctx, composite, tile->image,         /* overlay tile image at...*/
                 tile->toprow - toprow, tile->leftcol - leftcol, 1);
     } /*upper-left corner*/
     /* ------------------------------------------------------------
@@ -952,13 +951,13 @@ end_of_job:
  *      sp2 (I)     subraster *  to right-hand raster
  * --------------------------------------------------------------------------
  * Returns: ( int )     max #pixels we can smash sp1||sp2,
- *              or "blanksignal" if sp2 intentionally blank,
+ *              or "mctx->blanksignal" if sp2 intentionally blank,
  *              or 0 for any error.
  * --------------------------------------------------------------------------
  * Notes:     o
  * ======================================================================= */
 /* --- entry point --- */
-int rastsmash(subraster *sp1, subraster *sp2)
+int rastsmash(mimetex_ctx *mctx, subraster *sp1, subraster *sp2)
 {
     /* ------------------------------------------------------------
     Allocations and Declarations
@@ -981,25 +980,23 @@ int rastsmash(subraster *sp1, subraster *sp2)
         firstcol2[1025], nfirst2 = 0; /* 1st sp2 col containing set pixel*/
     /* min separation (s=x+y) */
     int smin = 9999, xmin = 9999, ymin = 9999;
-    /* display debugging output */
-    int type_raster();
     /* ------------------------------------------------------------
     find right edge of sp1 and left edge of sp2 (these will be abutting edges)
     ------------------------------------------------------------ */
     /* --- check args --- */
     /* ignore string rasters */
-    if (isstring) goto end_of_job;
+    if (mctx->isstring) goto end_of_job;
     /* don't smash in text mode */
     if (0 && istextmode) goto end_of_job;
     /* don't try to smash huge image */
     if (height > 1023) goto end_of_job;
-    if (sp2->type == blanksignal)        /*blanksignal was propagated to us*/
+    if (sp2->type == mctx->blanksignal)        /*mctx->blanksignal was propagated to us*/
         /* don't smash intentional blank */
         goto end_of_job;
     /* --- init firstcol1[], firstcol2[] --- */
     for (irow1 = 0; irow1 < height; irow1++) /* for each row */
         /* signal empty rows */
-        firstcol1[irow1] = firstcol2[irow1] = blanksignal;
+        firstcol1[irow1] = firstcol2[irow1] = mctx->blanksignal;
     /* --- set firstcol2[] indicating left edge of sp2 --- */
     for (irow2 = top2; irow2 <= bot2; irow2++) {
         /* for each row inside sp2 */
@@ -1017,11 +1014,11 @@ int rastsmash(subraster *sp1, subraster *sp2)
     }
     if (nfirst2 < 1) {           /*right-hand sp2 is completely blank*/
         /* signal intentional blanks */
-        nsmash = blanksignal;
+        nsmash = mctx->blanksignal;
         goto end_of_job;
     }          /* don't smash intentional blanks */
     /* --- now check if preceding image in sp1 was an intentional blank --- */
-    if (sp1->type == blanksignal)        /*blanksignal was propagated to us*/
+    if (sp1->type == mctx->blanksignal)        /*mctx->blanksignal was propagated to us*/
         /* don't smash intentional blank */
         goto end_of_job;
     /* --- set firstcol1[] indicating right edge of sp1 --- */
@@ -1048,23 +1045,23 @@ int rastsmash(subraster *sp1, subraster *sp2)
     for (irow2 = top2; irow2 <= bot2; irow2++) { /* check each row inside sp2 */
         /* #cols to first set pixel */
         int margin1, margin2 = firstcol2[irow2];
-        if (margin2 != blanksignal) {   /* irow2 not an empty/blank row */
+        if (margin2 != mctx->blanksignal) {   /* irow2 not an empty/blank row */
             for (irow1 = max2(irow2 - smin, top1); ; irow1++)
                 /* upper bound check */
                 if (irow1 > min2(irow2 + smin, bot1)) break;
-                else if ((margin1 = firstcol1[irow1]) != blanksignal) { /*have non-blank row*/
+                else if ((margin1 = firstcol1[irow1]) != mctx->blanksignal) { /*have non-blank row*/
                     /* deltas */
                     int dx = (margin1 + margin2), dy = absval(irow2 - irow1), ds = dx + dy;
                     /* min unchanged */
                     if (ds >= smin) continue;
                     /* dy alone */
-                    if (dy > smashmargin && dx < xmin && smin < 9999) continue;
+                    if (dy > mctx->smashmargin && dx < xmin && smin < 9999) continue;
                     smin = ds;
                     xmin = dx;
                     /* set new min */
                     ymin = dy;
-                } /* --- end-of-if(margin1!=blanksignal) --- */
-        } /* --- end-of-if(margin2!=blanksignal) --- */
+                } /* --- end-of-if(margin1!=mctx->blanksignal) --- */
+        } /* --- end-of-if(margin2!=mctx->blanksignal) --- */
         /* can't smash */
         if (smin < 2) goto end_of_job;
     } /* --- end-of-for(irow2) --- */
@@ -1076,17 +1073,17 @@ int rastsmash(subraster *sp1, subraster *sp2)
     ------------------------------------------------------------ */
 end_of_job:
     /* --- debugging output --- */
-    if (msgfp != NULL && msglevel >= 99) { /* display for debugging */
-        fprintf(msgfp, "rastsmash> nsmash=%d, smashmargin=%d\n",
-                nsmash, smashmargin);
-        if (msglevel >= 999) {     /* also display rasters */
-            fprintf(msgfp, "rastsmash>left-hand image...\n");
+    if (mctx->msgfp != NULL && mctx->msglevel >= 99) { /* display for debugging */
+        fprintf(mctx->msgfp, "rastsmash> nsmash=%d, mctx->smashmargin=%d\n",
+                nsmash, mctx->smashmargin);
+        if (mctx->msglevel >= 999) {     /* also display rasters */
+            fprintf(mctx->msgfp, "rastsmash>left-hand image...\n");
             /* left image */
-            if (sp1 != NULL) type_raster(sp1->image, msgfp);
-            fprintf(msgfp, "rastsmash>right-hand image...\n");
-            if (sp2 != NULL) type_raster(sp2->image, msgfp);
+            if (sp1 != NULL) type_raster(mctx, sp1->image, mctx->msgfp);
+            fprintf(mctx->msgfp, "rastsmash>right-hand image...\n");
+            if (sp2 != NULL) type_raster(mctx, sp2->image, mctx->msgfp);
         } /* right image */
-        fflush(msgfp);
+        fflush(mctx->msgfp);
     }
     /* back with #smash pixels */
     return (nsmash);
@@ -1108,7 +1105,7 @@ end_of_job:
  * Notes:     o
  * ======================================================================= */
 /* --- entry point --- */
-int rastsmashcheck(char *term)
+int rastsmashcheck(mimetex_ctx *mctx, char *term)
 {
     /* ------------------------------------------------------------
     Allocations and Declarations
@@ -1131,8 +1128,8 @@ int rastsmashcheck(char *term)
     /* ------------------------------------------------------------
     see if smash check enabled
     ------------------------------------------------------------ */
-    if (smashcheck < 1) {        /* no smash checking wanted */
-        if (smashcheck >= 0)   /* -1 means check should always fail */
+    if (mctx->smashcheck < 1) {        /* no smash checking wanted */
+        if (mctx->smashcheck >= 0)   /* -1 means check should always fail */
             /* otherwise (if 0), signal okay to smash */
             isokay = 1;
         goto end_of_job;
@@ -1157,8 +1154,8 @@ skipgray:
             /* and skip any subsequent white space */
             skipwhite(term);
             if (*term == '\000') {    /* nothing left so quit */
-                if (msgfp != NULL && msglevel >= 99) /* display for debugging */
-                    fprintf(msgfp, "rastsmashcheck> only grayspace in %.32s\n", expression);
+                if (mctx->msgfp != NULL && mctx->msglevel >= 99) /* display for debugging */
+                    fprintf(mctx->msgfp, "rastsmashcheck> only grayspace in %.32s\n", expression);
                 goto end_of_job;
             }
             goto skipgray;
@@ -1168,8 +1165,8 @@ skipgray:
     ------------------------------------------------------------ */
     /* --- don't smash if term begins with a "nosmash" char --- */
     if ((token = strchr(nosmashchars, *term)) != NULL) {
-        if (msgfp != NULL && msglevel >= 99)   /* display for debugging */
-            fprintf(msgfp, "rastsmashcheck> char %.1s found in %.32s\n", token, term);
+        if (mctx->msgfp != NULL && mctx->msglevel >= 99)   /* display for debugging */
+            fprintf(mctx->msgfp, "rastsmashcheck> char %.1s found in %.32s\n", token, term);
         goto end_of_job;
     }
     /* ------------------------------------------------------------
@@ -1177,8 +1174,8 @@ skipgray:
     ------------------------------------------------------------ */
     for (i = 0; (token = nosmashstrs[i]) != NULL; i++) /* check each nosmashstr */
         if (strncmp(term, token, strlen(token)) == 0) { /* found a nosmashstr */
-            if (msgfp != NULL && msglevel >= 99)   /* display for debugging */
-                fprintf(msgfp, "rastsmashcheck> token %s found in %.32s\n", token, term);
+            if (mctx->msgfp != NULL && mctx->msglevel >= 99)   /* display for debugging */
+                fprintf(mctx->msgfp, "rastsmashcheck> token %s found in %.32s\n", token, term);
             goto end_of_job;
         }        /* so don't smash term */
     /* ------------------------------------------------------------
@@ -1187,8 +1184,8 @@ skipgray:
     /* no problem, so signal okay to smash */
     isokay = 1;
 end_of_job:
-    if (msgfp != NULL && msglevel >= 999)  /* display for debugging */
-        fprintf(msgfp, "rastsmashcheck> returning isokay=%d for \"%.32s\"\n",
+    if (mctx->msgfp != NULL && mctx->msglevel >= 999)  /* display for debugging */
+        fprintf(mctx->msgfp, "rastsmashcheck> returning isokay=%d for \"%.32s\"\n",
                 isokay, (expression == NULL ? "<no input>" : expression));
     /* back to caller with 1 if okay to smash */
     return (isokay);
@@ -1211,7 +1208,7 @@ end_of_job:
  * Notes:     o if width or height <=0, embedded raster not allocated
  * ======================================================================= */
 /* --- entry point --- */
-subraster *new_subraster(int width, int height, int pixsz)
+subraster *new_subraster(mimetex_ctx *mctx, int width, int height, int pixsz)
 {
     /* ------------------------------------------------------------
     Allocations and Declarations
@@ -1228,10 +1225,10 @@ subraster *new_subraster(int width, int height, int pixsz)
     /* ------------------------------------------------------------
     allocate and initialize subraster struct
     ------------------------------------------------------------ */
-    if (msgfp != NULL && msglevel >= 9999) {
-        fprintf(msgfp, "new_subraster(%d,%d,%d)> entry point\n",
+    if (mctx->msgfp != NULL && mctx->msglevel >= 9999) {
+        fprintf(mctx->msgfp, "new_subraster(%d,%d,%d)> entry point\n",
                 width, height, pixsz);
-        fflush(msgfp);
+        fflush(mctx->msgfp);
     }
     /* --- allocate subraster struct --- */
     /* malloc subraster struct */
@@ -1257,22 +1254,22 @@ subraster *new_subraster(int width, int height, int pixsz)
     ------------------------------------------------------------ */
     /* --- allocate raster struct if desired --- */
     if (width > 0 && height > 0 && pixsz > 0) {  /* caller wants raster */
-        if ((rp = new_raster(width, height, pixsz)) /* allocate embedded raster */
+        if ((rp = new_raster(mctx, width, height, pixsz)) /* allocate embedded raster */
                 !=   NULL)              /* if allocate succeeded */
             /* embed raster in subraster */
             sp->image = rp;
         else {              /* or if allocate failed */
             /* free non-unneeded subraster */
-            delete_subraster(sp);
+            delete_subraster(mctx, sp);
             sp = NULL;
         }
     }          /* signal error */
     /* --- back to caller with new subraster or NULL --- */
 end_of_job:
-    if (msgfp != NULL && msglevel >= 9999) {
-        fprintf(msgfp, "new_subraster(%d,%d,%d)> returning (%s)\n",
+    if (mctx->msgfp != NULL && mctx->msglevel >= 9999) {
+        fprintf(mctx->msgfp, "new_subraster(%d,%d,%d)> returning (%s)\n",
                 width, height, pixsz, (sp == NULL ? "null ptr" : "success"));
-        fflush(msgfp);
+        fflush(mctx->msgfp);
     }
     return (sp);
 } /* --- end-of-function new_subraster() --- */
@@ -1291,18 +1288,17 @@ end_of_job:
  * Notes:
  * ======================================================================= */
 /* --- entry point --- */
-int delete_subraster(subraster *sp)
+int delete_subraster(mimetex_ctx *mctx, subraster *sp)
 {
     /* ------------------------------------------------------------
     free subraster struct
     ------------------------------------------------------------ */
     /* to delete embedded raster */
-    int delete_raster();
     if (sp != (subraster *)NULL) {       /* can't free null ptr */
         if (sp->type != CHARASTER)         /* not static character data */
             if (sp->image != NULL)       /*raster allocated within subraster*/
                 /* so free embedded raster */
-                delete_raster(sp->image);
+                delete_raster(mctx, sp->image);
         /* and free subraster struct itself*/
         free((void *)sp);
     } /* --- end-of-if(sp!=NULL) --- */
@@ -1323,7 +1319,7 @@ int delete_subraster(subraster *sp)
  * Notes:     o
  * ======================================================================= */
 /* --- entry point --- */
-subraster *subrastcpy(subraster *sp)
+subraster *subrastcpy(mimetex_ctx *mctx, subraster *sp)
 {
     /* ------------------------------------------------------------
     Allocations and Declarations
@@ -1340,7 +1336,7 @@ subraster *subrastcpy(subraster *sp)
     /* nothing to copy */
     if (sp == NULL) goto end_of_job;
     /* --- allocate new subraster "envelope" for copy --- */
-    if ((newsp = new_subraster(0, 0, 0)) /* allocate subraster "envelope" */
+    if ((newsp = new_subraster(mctx, 0, 0, 0)) /* allocate subraster "envelope" */
             /* and quit if we fail to allocate */
             ==   NULL) goto end_of_job;
     /* --- transparently copy original envelope to new one --- */
@@ -1348,10 +1344,10 @@ subraster *subrastcpy(subraster *sp)
     memcpy((void *)newsp, (void *)sp, sizeof(subraster));
     /* --- make a copy of the rasterized image itself, if there is one --- */
     if (sp->image != NULL)       /* there's an image embedded in sp */
-        if ((newrp = rastcpy(sp->image))   /* so copy rasterized image in sp */
+        if ((newrp = rastcpy(mctx, sp->image))   /* so copy rasterized image in sp */
                 ==   NULL) {              /* failed to copy successfully */
             /* won't need newsp any more */
-            delete_subraster(newsp);
+            delete_subraster(mctx, newsp);
             /* because we're returning error */
             newsp = NULL;
             goto end_of_job;
@@ -1371,7 +1367,7 @@ subraster *subrastcpy(subraster *sp)
         newsp->type = FRACRASTER;
         break;
     case BLANKSIGNAL:
-        newsp->type = blanksignal;
+        newsp->type = mctx->blanksignal;
         break;
     case IMAGERASTER:
     default:

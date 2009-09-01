@@ -25,6 +25,8 @@
 #include <config.h>
 #endif /* HAVE_CONFIG_H */
 
+#include <ctype.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include "mimetex_priv.h"
@@ -396,8 +398,6 @@ char *timestamp(int tzdelta, int ifmt)
     /* ------------------------------------------------------------
     Allocations and Declarations
     ------------------------------------------------------------ */
-    int tzadjust();
-    int daynumber();
     /* date:time buffer back to caller */
     static  char timebuff[256];
     /*long  time_val = 0L;*/        /* binary value returned by time() */
@@ -675,7 +675,7 @@ int daynumber(int year, int month, int day)
  *      produced linebreaks).
  * ======================================================================= */
 /* --- entry point --- */
-char    *strwrap(char *s, int linelen, int tablen)
+char    *strwrap(mimetex_ctx *mctx, char *s, int linelen, int tablen)
 {
     /* ------------------------------------------------------------
     Allocations and Declarations
@@ -753,9 +753,9 @@ char    *strwrap(char *s, int linelen, int tablen)
         rhslen = strlen(sol);
         /* no more \\'s needed */
         if (rhslen + thistab <= linelen) break;
-        if (0 && msgfp != NULL && msglevel >= 99) {
-            fprintf(msgfp, "strwrap> rhslen=%d, sol=\"\"%s\"\"\n", rhslen, sol);
-            fflush(msgfp);
+        if (0 && mctx->msgfp != NULL && mctx->msglevel >= 99) {
+            fprintf(mctx->msgfp, "strwrap> rhslen=%d, sol=\"\"%s\"\"\n", rhslen, sol);
+            fflush(mctx->msgfp);
         }
         /* --- look for last whitespace preceding linelen --- */
         while (1) {                /* till we exceed linelen */
@@ -991,7 +991,7 @@ int strreplace(char *string, char *from, char *to, int nreplace)
  *      by "virtual blanks".
  * ======================================================================= */
 /* --- entry point --- */
-char    *strwstr(char *string, char *substr, char *white, int *sublen)
+char    *strwstr(mimetex_ctx *mctx, char *string, char *substr, char *white, int *sublen)
 {
     /* ------------------------------------------------------------
     Allocations and Declarations
@@ -1114,10 +1114,10 @@ char    *strwstr(char *string, char *substr, char *white, int *sublen)
     Back to caller with ptr to first occurrence of substr in string
     ------------------------------------------------------------ */
 end_of_job:
-    if (msglevel >= 999 && msgfp != NULL) {   /* debugging/diagnostic output */
-        fprintf(msgfp, "strwstr> str=\"%.72s\" sub=\"%s\" found at offset %d\n",
+    if (mctx->msglevel >= 999 && mctx->msgfp != NULL) {   /* debugging/diagnostic output */
+        fprintf(mctx->msgfp, "strwstr> str=\"%.72s\" sub=\"%s\" found at offset %d\n",
                 string, substr, (pfound == NULL ? (-1) : (int)(pfound - string)));
-        fflush(msgfp);
+        fflush(mctx->msgfp);
     }
     if (sublen != NULL)            /*caller wants length of found substr*/
         /* give it to him along with ptr */

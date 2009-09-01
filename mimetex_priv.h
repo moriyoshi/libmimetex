@@ -54,60 +54,13 @@ typedef struct aaparameters_struct
     /* aapnm() params */
 } aaparameters;
 
-/* ------------------------------------------------------------
-control flags and values
------------------------------------------------------------- */
-extern int recurlevel;     /* inc/decremented in rasterize() */
-extern int scriptlevel;    /* inc/decremented in rastlimits() */
-extern int isstring;       /*pixmap is ascii string, not raster*/
-extern int isligature;     /* true if ligature found */
-extern char *subexprptr;  /* ptr within expression to subexpr*/
-extern int isdisplaystyle;     /* displaystyle mode (forced if 2) */
-extern int ispreambledollars;  /* displaystyle mode set by $$...$$ */
-extern int fontnum;        /* cal=1,scr=2,rm=3,it=4,bb=5,bf=6 */
-extern int fontsize;  /* current size */
-extern int displaysize;  /* use \displaystyle when fontsize>=*/
-extern double unitlength;    /* #pixels per unit (may be <1.0) */
-extern int isnocatspace;   /* >0 to not add space in rastcat()*/
-extern int smashmargin;  /* minimum "smash" margin */
-extern int mathsmashmargin; /* needed for \text{if $n-m$ even}*/
-extern int issmashdelta;   /* true if smashmargin is a delta */
-extern int isexplicitsmash;    /* true if \smash explicitly given */
-extern int smashcheck;  /* check if terms safe to smash */
-extern int isscripted;     /* is (lefthand) term text-scripted*/
-extern int isdelimscript;      /* is \right delim text-scripted */
-extern int issmashokay;    /*is leading char okay for smashing*/
-extern int blanksignal;  /*rastsmash signal right-hand blank*/
-extern int blanksymspace;      /* extra (or too much) space wanted*/
-extern double gammacorrection; /* gamma correction */
-extern int maxfollow;  /* aafollowline() maxturn parameter*/
-extern int fgalias;
-extern int fgonly;
-extern int bgalias;
-extern int bgonly;       /* aapnm() params */
-extern int *workingparam;  /* working parameter */
-extern subraster *workingbox; /*working subraster box*/
-extern int isreplaceleft;      /* true to replace leftexpression */
-extern subraster *leftexpression; /*rasterized so far*/
-extern mathchardef *leftsymdef; /* mathchardef for preceding symbol*/
-extern int fraccenterline; /* baseline for punct. after \frac */
-
-extern int centerwt;
-extern int minadjacent;
-extern int maxadjacent;
-extern int adjacentwt;
-extern int weightnum;
-extern int maxaaparams;
 extern aaparameters aaparams[]; /* set params by weight */
-extern int cornerwt;
-extern int ispatternnumcount;
 
 extern int nfontinfo;
 extern struct fontinfo_struct fontinfo[];
 extern int symspace[11][11];
 /* --- for low-pass anti-aliasing --- */
 extern fontfamily aafonttable[];
-extern fontfamily *fonttable;
 
 /* --- dummy font table (for contexts requiring const) --- */
 #define dummyfonttable \
@@ -115,39 +68,36 @@ extern fontfamily *fonttable;
    {   -999, {  NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL  } } \
   }
 
-/* ---
- * handler functions for math operations
- * ------------------------------------- */
-subraster *rastflags();         /* set flags, e.g., for \rm */
-subraster *rastfrac();          /* handle \frac \atop expressions */
-subraster *rastackrel();        /* handle \stackrel expressions */
-subraster *rastmathfunc();      /* handle \lim,\log,etc expressions*/
-subraster *rastoverlay();       /* handle \not */
-subraster *rastspace();         /* handle math space, \hspace,\hfill*/
-subraster *rastnewline();       /* handle \\ newline */
-subraster *rastarrow();         /* handle \longrightarrow, etc */
-subraster *rastuparrow();       /* handle \longuparrow, etc */
-subraster *rastsqrt();          /* handle \sqrt */
-subraster *rastaccent();        /* handle \hat \vec \braces, etc */
-subraster *rastfont();          /* handle \cal{} \scr{}, etc */
-subraster *rastbegin();         /* handle \begin{}...\end{} */
-subraster *rastleft();          /* handle \left...\right */
-subraster *rastmiddle();        /* handle \left...\middle...\right */
-subraster *rastarray();         /* handle \array{...} */
-subraster *rastpicture();       /* handle \picture(,){...} */
-subraster *rastline();          /* handle \line(xinc,yinc){xlen} */
-subraster *rastrule();          /* handle \rule[lift]{width}{height}*/
-subraster *rastcircle();        /* handle \circle(xdiam[,ydiam]) */
-subraster *rastbezier();        /*handle\bezier(c0,r0)(c1,r1)(ct,rt)*/
-subraster *rastraise();         /* handle \raisebox{lift}{expr} */
-subraster *rastrotate();        /* handle \rotatebox{degs}{expr} */
-subraster *rastreflect();       /* handle \reflectbox[axis]{expr} */
-subraster *rastfbox();          /* handle \fbox{expr} */
-subraster *rastinput();         /* handle \input{filename} */
-subraster *rastcounter();       /* handle \counter{filename} */
-subraster *rasttoday();         /* handle \today[+/-tzdelta,ifmt] */
-subraster *rastcalendar();      /* handle \calendar[yaer,month] */
-subraster *rastnoop();          /* handle \escape's to be flushed */
-subraster *rastparen();
+mathchardef *get_ligature(mimetex_ctx *mctx, char *expression, int family);
+
+subraster *rastleft(mimetex_ctx *mctx, char **expression, int size, subraster *basesp, int ildelim, int arg2, int arg3);
+subraster *rastright(mimetex_ctx *mctx, char **expression, int size, subraster *basesp, int ildelim, int arg2, int arg3);
+subraster *rastmiddle(mimetex_ctx *mctx, char **expression, int size, subraster *basesp, int arg1, int arg2, int arg3);
+subraster *rastflags(mimetex_ctx *mctx, char **expression, int size, subraster *basesp, int flag, int value, int arg3);
+subraster *rastspace(mimetex_ctx *mctx, char **expression, int size, subraster *basesp, int width, int isfill, int isheight);
+subraster *rastnewline(mimetex_ctx *mctx, char **expression, int size, subraster *basesp, int arg1, int arg2, int arg3);
+subraster *rastarrow(mimetex_ctx *mctx, char **expression, int size, subraster *basesp, int drctn, int isBig, int arg3);
+subraster *rastuparrow(mimetex_ctx *mctx, char **expression, int size, subraster *basesp, int drctn, int isBig, int arg3);
+subraster *rastoverlay(mimetex_ctx *mctx, char **expression, int size, subraster *basesp, int overlay, int offset2, int arg3);
+subraster *rastfrac(mimetex_ctx *mctx, char **expression, int size, subraster *basesp, int isfrac, int arg2, int arg3);
+subraster *rastackrel(mimetex_ctx *mctx, char **expression, int size, subraster *basesp, int base, int arg2, int arg3);
+subraster *rastmathfunc(mimetex_ctx *mctx, char **expression, int size, subraster *basesp, int mathfunc, int islimits, int arg3);
+subraster *rastsqrt(mimetex_ctx *mctx, char **expression, int size, subraster *basesp, int arg1, int arg2, int arg3);
+subraster *rastaccent(mimetex_ctx *mctx, char **expression, int size, subraster *basesp, int accent, int isabove, int isscript);
+subraster *rastfont(mimetex_ctx *mctx, char **expression, int size, subraster *basesp, int ifontnum, int arg2, int arg3);
+subraster *rastbegin(mimetex_ctx *mctx, char **expression, int size, subraster *basesp, int arg1, int arg2, int arg3);
+subraster *rastarray(mimetex_ctx *mctx, char **expression, int size, subraster *basesp, int arg1, int arg2, int arg3);
+subraster *rastpicture(mimetex_ctx *mctx, char **expression, int size, subraster *basesp, int arg1, int arg2, int arg3);
+subraster *rastline(mimetex_ctx *mctx, char **expression, int size, subraster *basesp, int arg1, int arg2, int arg3);
+subraster *rastrule(mimetex_ctx *mctx, char **expression, int size, subraster *basesp, int arg1, int arg2, int arg3);
+subraster *rastcircle(mimetex_ctx *mctx, char **expression, int size, subraster *basesp, int arg1, int arg2, int arg3);
+subraster *rastbezier(mimetex_ctx *mctx, char **expression, int size, subraster *basesp, int arg1, int arg2, int arg3);
+subraster *rastraise(mimetex_ctx *mctx, char **expression, int size, subraster *basesp, int arg1, int arg2, int arg3);
+subraster *rastrotate(mimetex_ctx *mctx, char **expression, int size, subraster *basesp, int arg1, int arg2, int arg3);
+subraster *rastreflect(mimetex_ctx *mctx, char **expression, int size, subraster *basesp, int arg1, int arg2, int arg3);
+subraster *rastfbox(mimetex_ctx *mctx, char **expression, int size, subraster *basesp, int arg1, int arg2, int arg3);
+subraster *rasttoday(mimetex_ctx *mctx, char **expression, int size, subraster *basesp, int arg1, int arg2, int arg3);
+subraster *rastcalendar(mimetex_ctx *mctx, char **expression, int size, subraster *basesp, int arg1, int arg2, int arg3);
+subraster *rastnoop(mimetex_ctx *mctx, char **expression, int size, subraster *basesp, int nargs, int arg2, int arg3);
 
 #endif /* MIMETEX_PRIV_H */

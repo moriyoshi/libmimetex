@@ -25,6 +25,7 @@
 #include <config.h>
 #endif /* HAVE_CONFIG_H */
 
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -157,7 +158,7 @@
 #endif
 
 #ifndef FORMLEVEL
-#define FORMLEVEL LOGLEVEL        /*msglevel if called from html form*/
+#define FORMLEVEL LOGLEVEL        /*mctx.msglevel if called from html form*/
 #endif
 
 /* --- anti-aliasing flags (needed by GetPixel() as well as main()) --- */
@@ -208,7 +209,6 @@ static  char *msgtable[] = {        /* messages referenced by [index] */
     NULL
 } ;               /* trailer */
 
-static int daemonlevel = 0;    /* incremented in main() */
 static int iscaching = ISCACHING;  /* true if caching images */
 static char cachepath[256] = CACHEPATH;  /* relative path to cached files */
 static int isemitcontenttype = 1;  /* true to emit mime content-type */
@@ -223,6 +223,7 @@ static char exprprefix[256] = "\000";  /* prefix prepended to expressions */
 static int ninputcmds = 0;     /* # of \input commands processed */
 static int errorstatus = ERRORSTATUS;  /* exit status if error encountered*/
 static int isplusblank = -1;  /*interpret +'s in query as blanks?*/
+static int tzdelta = 0;
 
 static char *md5str(char *instr)
 {
@@ -684,7 +685,7 @@ end_of_job:
  * Notes:     o
  * ======================================================================= */
 /* --- entry point --- */
-FILE    *rastopenfile(char *filename, char *mode)
+FILE    *rastopenfile(mimetex_ctx *mctx, char *filename, char *mode)
 {
     /* ------------------------------------------------------------
     Allocations and Declarations
@@ -733,10 +734,10 @@ FILE    *rastopenfile(char *filename, char *mode)
         fclose(fp);
     /* --- return fp or NULL to caller --- */
     /*end_of_job:*/
-    if (msglevel >= 9 && msgfp != NULL) { /* debuging */
-        fprintf(msgfp, "rastopenfile> returning fopen(%s,%s) = %s\n",
+    if (mctx->msglevel >= 9 && mctx->msgfp != NULL) { /* debuging */
+        fprintf(mctx->msgfp, "rastopenfile> returning fopen(%s,%s) = %s\n",
                 filename, amode, (fp == NULL ? "NULL" : "Okay"));
-        fflush(msgfp);
+        fflush(mctx->msgfp);
     }
     /* return fp or NULL to caller */
     return (fp);
@@ -764,13 +765,13 @@ FILE    *rastopenfile(char *filename, char *mode)
  * Notes:     o
  * ======================================================================= */
 /* --- entry point --- */
-int rastreadfile(char *filename, int islock, char *tag, char *value)
+int rastreadfile(mimetex_ctx *mctx, char *filename, int islock, char *tag, char *value)
 {
     /* ------------------------------------------------------------
     Allocations and Declarations
     ------------------------------------------------------------ */
     /* pointer to opened filename */
-    FILE    *fp = (FILE *)NULL, *rastopenfile();
+    FILE    *fp = (FILE *)NULL;
     char    texfile[1024] = "\000",     /* local copy of input filename */
             text[MAXLINESZ+1]; /* line from input file */
     char    *tagp, tag1[1024], tag2[1024];  /* left <tag> and right <tag/> */
@@ -795,7 +796,7 @@ int rastreadfile(char *filename, int islock, char *tag, char *value)
         strncpy(texfile, filename, 1023);
         /* make sure it's null terminated */
         texfile[1023] = '\000';
-        fp = rastopenfile(texfile, (islock ? "r+" : "r"));
+        fp = rastopenfile(mctx, texfile, (islock ? "r+" : "r"));
     } /* try opening it */
     /* --- check that file opened --- */
     if (fp == (FILE *)NULL) {        /* failed to open file */
@@ -897,7 +898,7 @@ end_of_job:
  * Notes:     o
  * ======================================================================= */
 /* --- entry point --- */
-int rastwritefile(char *filename, char *tag, char *value, int isstrict)
+int rastwritefile(mimetex_ctx *mctx, char *filename, char *tag, char *value, int isstrict)
 {
     /* ------------------------------------------------------------
     Allocations and Declarations
@@ -931,7 +932,7 @@ int rastwritefile(char *filename, char *tag, char *value, int isstrict)
     strncpy(texfile, filename, 1023);
     /* make sure it's null terminated */
     texfile[1023] = '\000';
-    if (rastopenfile(texfile, NULL)      /* unchanged or .tex appended */
+    if (rastopenfile(mctx, texfile, NULL)      /* unchanged or .tex appended */
             == (FILE *)NULL) {          /* can't open, so write new file */
         /* fail if new files not permitted */
         if (isstrict) goto end_of_job;
@@ -961,7 +962,7 @@ int rastwritefile(char *filename, char *tag, char *value, int isstrict)
     *filebuff = '\000';
     if (!isnewfile)              /* if file already exists */
         if (istag)                  /* and just rewriting one tag */
-            if (rastreadfile(texfile, 1, NULL, filebuff) /* read entire existing file */
+            if (rastreadfile(mctx, texfile, 1, NULL, filebuff) /* read entire existing file */
                     /* signal error if failed to read */
                     <=   0) goto end_of_job;
     /* ------------------------------------------------------------
@@ -1024,7 +1025,7 @@ int rastwritefile(char *filename, char *tag, char *value, int isstrict)
     rewrite file and return to caller
     ------------------------------------------------------------ */
     /* --- first open file for write --- */
-    if ((fp = rastopenfile(texfile, "w"))  /* open for write */
+    if ((fp = rastopenfile(mctx, texfile, "w"))  /* open for write */
             /* signal error if can't open */
             == (FILE *)NULL) goto end_of_job;
     /* --- rewrite and close file --- */
@@ -1046,7 +1047,7 @@ int rastwritefile(char *filename, char *tag, char *value, int isstrict)
                     strcat(fbuff, " modified at ");
                     /* start with timestamp */
                     strcat(fbuff, timestamp(tzdelta, 0));
-                    status = rastwritefile(filename, "timestamp", fbuff, 1);
+                    status = rastwritefile(mctx, filename, "timestamp", fbuff, 1);
                 }
     /* --- return status to caller --- */
 end_of_job:
@@ -1079,7 +1080,8 @@ end_of_job:
  * Notes:     o
  * ======================================================================= */
 /* --- entry point --- */
-static subraster *rastenviron(char **expression, int size, subraster *basesp,
+static subraster *rastenviron(mimetex_ctx *mctx,
+                              char **expression, int size, subraster *basesp,
                               int arg1, int arg2, int arg3)
 {
     /* ------------------------------------------------------------
@@ -1107,7 +1109,7 @@ static subraster *rastenviron(char **expression, int size, subraster *basesp,
     /* --- check for optional \environment args --- */
     if (1)               /* there aren't any args (yet) */
         if (*(*expression) == '[') {        /* check for []-enclosed value */
-            *expression = texsubexpr(*expression, optarg, 250, "[", "]", 0, 0);
+            *expression = texsubexpr(mctx, *expression, optarg, 250, "[", "]", 0, 0);
             if (*optarg != '\000') {
                 /* got optional arg, so process it */
                 ;
@@ -1148,16 +1150,16 @@ static subraster *rastenviron(char **expression, int size, subraster *basesp,
         environptr = strdetex(environvar, 1); /* remove/replace any math chars */
         strninit(environvar, environptr, maxvarlen); /*de-tex'ed/nomath environvar*/
         /* wrap long lines */
-        environptr = strwrap(environvar, wraplen, -6);
+        environptr = strwrap(mctx, environvar, wraplen, -6);
         /* line-wrapped environvar */
         strninit(environvar, environptr, maxvarlen);
         /* preprocess environvar string */
-        mimeprep(environvar);
+        mimeprep(mctx, environvar);
         if (strlen(environstr) + strlen(environvar) > maxenvlen) break;
         sprintf(environstr + strlen(environstr), /* display environment string */
                 " %2d. %s\\\\\n", ienv + 1, environvar);
-        if (msgfp != NULL && msglevel >= 9)
-            fprintf(msgfp, "rastenviron> %2d. %.256s\n",
+        if (mctx->msgfp != NULL && mctx->msglevel >= 9)
+            fprintf(mctx->msgfp, "rastenviron> %2d. %.256s\n",
                     ienv + 1,/*environ[ienv]*/environvar);
         /* don't overflow buffer */
         if (strlen(environstr) >= 7200) break;
@@ -1166,7 +1168,7 @@ static subraster *rastenviron(char **expression, int size, subraster *basesp,
     strcat(environstr, "}}");
 rasterize_environ:
     /* rasterize environment string */
-    environsp = rasterize(environstr, size);
+    environsp = rasterize(mctx, environstr, size);
     /* --- return environment raster to caller --- */
     /*end_of_job:*/
     /* return environment to caller */
@@ -1194,14 +1196,12 @@ rasterize_environ:
  * Notes:     o
  * ======================================================================= */
 /* --- entry point --- */
-static subraster *rastmessage(char **expression, int size, subraster *basesp,
-                              int arg1, int arg2, int arg3)
+static subraster *rastmessage(mimetex_ctx *mctx, char **expression, int size,
+                              subraster *basesp, int arg1, int arg2, int arg3)
 {
     /* ------------------------------------------------------------
     Allocations and Declarations
     ------------------------------------------------------------ */
-    char    *strdetex();
-
     char amsg[256] = "\000";
     /* default message number */
     int imsg = 0;
@@ -1219,7 +1219,7 @@ static subraster *rastmessage(char **expression, int size, subraster *basesp,
     obtain message {amsg} argument
     ------------------------------------------------------------ */
     /* --- parse for {amsg} arg, and bump expression past it --- */
-    *expression = texsubexpr(*expression, amsg, 255, "{", "}", 0, 0);
+    *expression = texsubexpr(mctx, *expression, amsg, 255, "{", "}", 0, 0);
     /* --- interpret argument --- */
     if (*amsg != '\000') {       /* got amsg arg */
         /* interpret as an int */
@@ -1240,7 +1240,7 @@ static subraster *rastmessage(char **expression, int size, subraster *basesp,
     } /* --- end-of-switch(imsg) --- */
     /* --- rasterize requested message --- */
     /* rasterize message string */
-    messagesp = rasterize(msg, size);
+    messagesp = rasterize(mctx, msg, size);
     /* --- return message raster to caller --- */
     /*end_of_job:*/
     /* return message to caller */
@@ -1273,20 +1273,12 @@ static subraster *rastmessage(char **expression, int size, subraster *basesp,
  *        o :tag is optional
  * ======================================================================= */
 /* --- entry point --- */
-static subraster *rastcounter(char **expression, int size, subraster *basesp,
-                              int arg1, int arg2, int arg3)
+static subraster *rastcounter(mimetex_ctx *mctx, char **expression, int size,
+                              subraster *basesp, int arg1, int arg2, int arg3)
 {
     /* ------------------------------------------------------------
     Allocations and Declarations
     ------------------------------------------------------------ */
-    char *texsubexpr();
-    subraster *rasterize();
-    int rastreadfile();
-    int rastwritefile();
-    char *rasteditfilename();
-    char *timestamp();
-    char *dbltoa();
-
     char filename[1024] = "\000", /* counter file */
          logfile[1024] = "\000", tag[1024] = "\000"; /*optional log file and tag*/
     /* rasterized counter image */
@@ -1318,7 +1310,7 @@ static subraster *rastcounter(char **expression, int size, subraster *basesp,
     ------------------------------------------------------------ */
     /* --- first check for optional \counter[value] --- */
     if (*(*expression) == '[') {     /* check for []-enclosed value */
-        *expression = texsubexpr(*expression, text, 1023, "[", "]", 0, 0);
+        *expression = texsubexpr(mctx, *expression, text, 1023, "[", "]", 0, 0);
         if (*text != '\000')         /* got counter value (or logfile) */
             if (strlen(text) >= 1) {        /* and it's not an empty string */
                 if (isthischar(*text, "+-0123456789"))  /* check for leading +-digit */
@@ -1331,7 +1323,7 @@ static subraster *rastcounter(char **expression, int size, subraster *basesp,
     } /* --- end-of-if(**expression=='[') --- */
     /* --- next check for optional \counter[][logfile] --- */
     if (*(*expression) == '[') {     /* check for []-enclosed logfile */
-        *expression = texsubexpr(*expression, filename, 1023, "[", "]", 0, 0);
+        *expression = texsubexpr(mctx, *expression, filename, 1023, "[", "]", 0, 0);
         if (*filename != '\000')         /* got logfile (or counter value) */
             if (strlen(filename) >= 1) {    /* and it's not an empty string */
                 if (!(isthischar(*text, "+-0123456789")) /* not a leading +-digit */
@@ -1362,7 +1354,7 @@ static subraster *rastcounter(char **expression, int size, subraster *basesp,
     obtain counter {filename} argument
     ------------------------------------------------------------ */
     /* --- parse for {filename} arg, and bump expression past it --- */
-    *expression = texsubexpr(*expression, filename, 1023, "{", "}", 0, 0);
+    *expression = texsubexpr(mctx, *expression, filename, 1023, "{", "}", 0, 0);
     /* --- check for counter filename:tag --- */
     if (*filename != '\000')         /* got filename */
         if ((delim = strchr(filename, ':')) /* look for : in filename:tag */
@@ -1387,7 +1379,7 @@ static subraster *rastcounter(char **expression, int size, subraster *basesp,
     if (strlen(filename) > 1) {      /* make sure we got {filename} arg */
         /* --- read and interpret first (and only) line from counter file --- */
         if (!gotvalue || (isdelta != 0))   /*if no [count] arg or if delta arg*/
-            if ((status = rastreadfile(filename, 1, tag, text)) > 0) { /*try reading file*/
+            if ((status = rastreadfile(mctx, filename, 1, tag, text)) > 0) { /*try reading file*/
                 /* underscore delim from file */
                 char *vdelim = NULL;
                 /* value and delim from file */
@@ -1416,7 +1408,7 @@ static subraster *rastcounter(char **expression, int size, subraster *basesp,
             if (ordindex >= 0) strcat(text, "_");
             /* and newline */
             if (*tag == '\000') strcat(text, "\n");
-            status = rastwritefile(filename, tag, text, isstrict);
+            status = rastwritefile(mctx, filename, tag, text, isstrict);
         } /*rewrite counter*/
     } /* --- end-of-if(strlen(filename)>1) --- */
     /* ------------------------------------------------------------
@@ -1493,7 +1485,7 @@ static subraster *rastcounter(char **expression, int size, subraster *basesp,
     /* --- rasterize it --- */
 rasterize_counter:
     /* rasterize counter subexpression */
-    countersp = rasterize(text, size);
+    countersp = rasterize(mctx, text, size);
     /* --- return counter image to caller --- */
     /*end_of_job:*/
     /* return counter image to caller */
@@ -1527,18 +1519,12 @@ rasterize_counter:
  *        o
  * ======================================================================= */
 /* --- entry point --- */
-static subraster *rastinput(char **expression, int size, subraster *basesp,
-                            int arg1, int arg2, int arg3)
+static subraster *rastinput(mimetex_ctx *mctx, char **expression, int size,
+                            subraster *basesp, int arg1, int arg2, int arg3)
 {
     /* ------------------------------------------------------------
     Allocations and Declarations
     ------------------------------------------------------------ */
-    char    *texsubexpr();
-    subraster *rasterize();
-    int isstrstr();
-    char *mimeprep();
-    char *dbltoa();
-
     /* args */
     char tag[1024] = "\000", filename[1024] = "\000";
     /* rasterized input image */
@@ -1561,7 +1547,7 @@ static subraster *rastinput(char **expression, int size, subraster *basesp,
     if (*(*expression) == '[') {     /* check for []-enclosed value */
         /* optional argument field */
         char argfld[MAXTOKNSZ+1];
-        *expression = texsubexpr(*expression, argfld, MAXTOKNSZ - 1, "[", "]", 0, 0);
+        *expression = texsubexpr(mctx, *expression, argfld, MAXTOKNSZ - 1, "[", "]", 0, 0);
         if ((reformat = strstr(argfld, "dtoa")) != NULL) { /*dtoa/dbltoa requested*/
             format = 1;         /* signal dtoa()/dbltoa() format */
             if ((reformat = strchr(reformat, '=')) != NULL) /* have dtoa= */
@@ -1572,7 +1558,7 @@ static subraster *rastinput(char **expression, int size, subraster *basesp,
         }
     }    /* so interpret arg as tag */
     /* --- parse for {filename} arg, and bump expression past it --- */
-    *expression = texsubexpr(*expression, filename, 1020, "{", "}", 0, 0);
+    *expression = texsubexpr(mctx, *expression, filename, 1020, "{", "}", 0, 0);
     /* --- check for alternate filename:tag --- */
     if (!isempty(filename)           /* got filename */
             /*&& isempty(tag)*/) {          /* but no [tag] */
@@ -1600,12 +1586,12 @@ static subraster *rastinput(char **expression, int size, subraster *basesp,
     ------------------------------------------------------------ */
     if (isinput) {           /* user permitted to use \input{} */
         /* read file */
-        status = rastreadfile(filename, 0, tag, subexpr);
+        status = rastreadfile(mctx, filename, 0, tag, subexpr);
         /* quit if problem */
         if (*subexpr == '\000') goto end_of_job;
         /* --- rasterize input subexpression  --- */
         /* preprocess subexpression */
-        mimeprep(subexpr);
+        mimeprep(mctx, subexpr);
         if (format == 1) {             /* dtoa()/dbltoa() */
             /* interpret subexpr as double */
             double d = strtod(subexpr, NULL);
@@ -1626,7 +1612,7 @@ static subraster *rastinput(char **expression, int size, subraster *basesp,
     Rasterize constructed subexpression
     ------------------------------------------------------------ */
     /* rasterize subexpression */
-    inputsp = rasterize(subexpr, size);
+    inputsp = rasterize(mctx, subexpr, size);
     /* --- return input image to caller --- */
 end_of_job:
     /* return input image to caller */
@@ -1786,6 +1772,119 @@ end_of_job:
 
 
 /* ==========================================================================
+ * Function:    type_bytemap ( bp, grayscale, width, height, fp )
+ * Purpose: Emit an ascii dump representing bp, on fp.
+ * --------------------------------------------------------------------------
+ * Arguments:   bp (I)      intbyte * to bytemap for which an
+ *              ascii dump is to be constructed.
+ *      grayscale (I)   int containing #gray shades, 256 for 8-bit
+ *      width (I)   int containing #cols in bytemap
+ *      height (I)  int containing #rows in bytemap
+ *      fp (I)      File ptr to output device (defaults to
+ *              stdout if passed as NULL).
+ * --------------------------------------------------------------------------
+ * Returns: ( int )     1 if completed successfully,
+ *              or 0 otherwise (for any error).
+ * --------------------------------------------------------------------------
+ * Notes:
+ * ======================================================================= */
+/* --- entry point --- */
+static int type_bytemap(mimetex_ctx *mctx, intbyte *bp, int grayscale,
+                 int width, int height, FILE *fp)
+{
+    /* ------------------------------------------------------------
+    Allocations and Declarations
+    ------------------------------------------------------------ */
+    /* max columns for display */
+    static  int display_width = 72;
+    int byte_width = 3,         /* cols to display byte (ff+space) */
+        maxbyte = 0; /* if maxbyte<16, set byte_width=2 */
+    int white_byte = 0,         /* show dots for white_byte's */
+        black_byte = grayscale - 1; /* show stars for black_byte's */
+    char scanline[133]; /* ascii image for one scan line */
+    int scan_width, /* #chars in scan (<=display_width)*/
+        scan_cols; /* #cols in scan (hicol-locol+1) */
+    int ibyte,              /* bp[] index */
+        irow, locol, hicol = (-1); /* height index, width indexes */
+    /* ------------------------------------------------------------
+    initialization
+    ------------------------------------------------------------ */
+    /* --- redirect null fp --- */
+    /* default fp to stdout if null */
+    if (fp == (FILE *)NULL) fp = stdout;
+    /* --- check for ascii string --- */
+    if (mctx->isstring) {              /* bp has ascii string, not raster */
+        /* #chars in ascii string */
+        width = strlen((char *)bp);
+        height = 1;
+    }            /* default */
+    /* --- see if we can get away with byte_width=1 --- */
+    for (ibyte = 0; ibyte < width*height; ibyte++) { /* check all bytes */
+        /* current byte value */
+        int byteval = (int)bp[ibyte];
+        if (byteval < black_byte)        /* if it's less than black_byte */
+            maxbyte = max2(maxbyte, byteval);
+    } /* then find max non-black value */
+    if (maxbyte < 16)            /* bytevals will fit in one column */
+        /* so reset display byte_width */
+        byte_width = 1;
+    /* ------------------------------------------------------------
+    display ascii dump of bitmap image (in segments if display_width < rp->width)
+    ------------------------------------------------------------ */
+    while ((locol = hicol + 1) < width) { /*start where prev segment left off*/
+        /* --- set hicol for this pass (locol set above) --- */
+        /* show as much as display allows */
+        hicol += display_width / byte_width;
+        /* but not more than bytemap */
+        if (hicol >= width) hicol = width - 1;
+        /* #cols in this scan */
+        scan_cols = hicol - locol + 1;
+        /* #chars in this scan */
+        scan_width = byte_width * scan_cols;
+        /* separator */
+        if (locol > 0 && !mctx->isstring) fprintf(fp, "----------\n");
+        /* ------------------------------------------------------------
+        display all scan lines for this local...hicol segment range
+        ------------------------------------------------------------ */
+        for (irow = 0; irow < height; irow++) { /* all scan lines for col range */
+            /* --- allocations and declarations --- */
+            /* first bp[] byte in this scan */
+            int  lobyte = irow * width + locol;
+            /* sprintf() buffer for byte */
+            char scanbyte[32];
+            /* --- set chars in scanline[] based on bytes in bytemap bp[] --- */
+            /* blank out scanline */
+            memset(scanline, ' ', scan_width);
+            for (ibyte = 0; ibyte < scan_cols; ibyte++) { /* set chars for each col */
+                /* value of current byte */
+                int byteval = (int)bp[lobyte+ibyte];
+                /* dot-fill scanbyte */
+                memset(scanbyte, '.', byte_width);
+                if (byteval == black_byte)   /* but if we have a black byte */
+                    /* star-fill scanbyte instead */
+                    memset(scanbyte, '*', byte_width);
+                if (byte_width > 1)          /* don't blank out single char */
+                    /* blank-fill rightmost character */
+                    scanbyte[byte_width-1] = ' ';
+                if (byteval != white_byte    /* format bytes that are non-white */
+                        &&   byteval != black_byte)     /* and that are non-black */
+                    /*hex-format*/
+                    sprintf(scanbyte, "%*x ", max2(1, byte_width - 1), byteval);
+                memcpy(scanline + ibyte*byte_width, scanbyte, byte_width);
+            } /*in line*/
+            /* --- display completed scan line --- */
+            fprintf(fp, "%.*s\n", scan_width, scanline);
+        } /* --- end-of-for(irow) --- */
+    } /* --- end-of-while(hicol<width) --- */
+    /* ------------------------------------------------------------
+    Back to caller with 1=okay, 0=failed.
+    ------------------------------------------------------------ */
+    return (1);
+} /* --- end-of-function type_bytemap() --- */
+
+
+
+/* ==========================================================================
  * Function:    xbitmap_raster ( rp, fp )
  * Purpose: Emit a mime xbitmap representing rp, on fp.
  * --------------------------------------------------------------------------
@@ -1831,6 +1930,7 @@ static int xbitmap_raster(raster *rp, FILE *fp)
 } /* --- end-of-function xbitmap_raster() --- */
 
 struct gif_raster_params {
+    mimetex_ctx *mctx;
     int ncolors;
     raster *bitmap; /* use 0/1 bitmap image or */
     intbyte *colormap;  /* anti-aliased color indexes */
@@ -1866,31 +1966,31 @@ static int gif_raster_get_pixel(void *_ctx, int x, int y)
     /* else use anti-aliased grayscale*/
         /* colors[] index number */
         pixval = (int)(ctx->colormap[ipixel]);
-    if (msgfp != NULL && msglevel >= 9999) { /* dump pixel */
-        fprintf(msgfp, "gif_raster_get_pixel> x=%d, y=%d  pixel=%d\n", x, y, pixval);
-        fflush(msgfp);
+    if (ctx->mctx->msgfp != NULL && ctx->mctx->msglevel >= 9999) { /* dump pixel */
+        fprintf(ctx->mctx->msgfp, "gif_raster_get_pixel> x=%d, y=%d  pixel=%d\n", x, y, pixval);
+        fflush(ctx->mctx->msgfp);
     }
     return pixval;
 } /* --- end-of-function gif_raster_get_pixel() --- */
 
 
-static int gif_raster(int ncolors, raster *bp, intbyte *colormap, intbyte *colors, FILE *fp, void *buffer, int buffer_size)
+static int gif_raster(mimetex_ctx *mctx, int ncolors, raster *bp, intbyte *colormap, intbyte *colors, FILE *fp, void *buffer, int buffer_size)
 {
-    struct gif_raster_params params = { ncolors, bp, colormap };
+    struct gif_raster_params params = { mctx, ncolors, bp, colormap };
     GIFContext *gctx;
     /* --- initialize gifsave library and colors --- */
-    if (msgfp != NULL && msglevel >= 999) {
-        fprintf(msgfp, "main> calling GIF_Create(*,%d,%d,%d,8)\n",
+    if (mctx->msgfp != NULL && mctx->msglevel >= 999) {
+        fprintf(mctx->msgfp, "main> calling GIF_Create(*,%d,%d,%d,8)\n",
                 bp->width, bp->height, ncolors);
-        fflush(msgfp);
+        fflush(mctx->msgfp);
     }
     if ((gctx = GIF_Create(fp, buffer, buffer_size, bp->width, bp->height, ncolors, 8)) == NULL)
         return 0;
     /* background white if all 255 */
-    GIF_SetColor(gctx, 0, bgred, bggreen, bgblue);
+    GIF_SetColor(gctx, 0, mctx->bgred, mctx->bggreen, mctx->bgblue);
     if (ncolors == 2) {               /* just b&w if not anti-aliased */
         /* foreground black if all 0 */
-        GIF_SetColor(gctx, 1, fgred, fggreen, fgblue);
+        GIF_SetColor(gctx, 1, mctx->fgred, mctx->fggreen, mctx->fgblue);
         /* and set 2 b&w color indexes */
         colors[0] = '\000';
         colors[1] = '\001';
@@ -1902,21 +2002,21 @@ static int gif_raster(int ncolors, raster *bp, intbyte *colormap, intbyte *color
             /*--- gfrac goes from 0 to 1.0, as igray goes from 0 to ncolors-1 ---*/
             double gfrac = ((double)colors[igray]) / ((double)colors[ncolors-1]);
             /* --- r,g,b components go from background to foreground color --- */
-            int red  = iround(((double)bgred)  + gfrac * ((double)(fgred - bgred))),
-                green = iround(((double)bggreen) + gfrac * ((double)(fggreen - bggreen))),
-                blue = iround(((double)bgblue) + gfrac * ((double)(fgblue - bgblue)));
+            int red  = iround(((double)mctx->bgred)  + gfrac * ((double)(mctx->fgred - mctx->bgred))),
+                green = iround(((double)mctx->bggreen) + gfrac * ((double)(mctx->fggreen - mctx->bggreen))),
+                blue = iround(((double)mctx->bgblue) + gfrac * ((double)(mctx->fgblue - mctx->bgblue)));
             /* --- set color index number igray to rgb values gray,gray,gray --- */
             /*set gray,grayer,...,0=black*/
             GIF_SetColor(gctx, igray, red, green, blue);
         } /* --- end-of-for(igray) --- */
     }        
     /* --- set gif color#0 (background) transparent --- */
-    if (istransparent)             /* transparent background wanted */
+    if (mctx->istransparent)             /* transparent background wanted */
         /* set transparent background */
         GIF_SetTransparent(gctx, 0);
     /*flush debugging output*/
-    if (msgfp != NULL && msglevel >= 9)
-        fflush(msgfp);
+    if (mctx->msgfp != NULL && mctx->msglevel >= 9)
+        fflush(mctx->msgfp);
     /* --- emit compressed gif image (to stdout or cache file) --- */
     /* emit gif */
     GIF_CompressImage(gctx, 0, 0, -1, -1, gif_raster_get_pixel, &params);
@@ -1924,6 +2024,315 @@ static int gif_raster(int ncolors, raster *bp, intbyte *colormap, intbyte *color
     GIF_Close(gctx);
     return gctx->gifSize;
 }
+
+/* ==========================================================================
+ * Function:    ismonth ( char *month )
+ * Purpose: returns 1 if month contains current month "jan"..."dec".
+ * --------------------------------------------------------------------------
+ * Arguments:   month (I)   char * containing null-terminated string
+ *              in which "jan"..."dec" is (putatively)
+ *              contained as a substring.
+ * --------------------------------------------------------------------------
+ * Returns: ( int )     1 if month contains current month,
+ *              0 otherwise
+ * --------------------------------------------------------------------------
+ * Notes:     o There's a three day "grace period", e.g., Dec 3 mtaches Nov.
+ * ======================================================================= */
+/* --- entry point --- */
+static int ismonth(char *month)
+{
+    /* ------------------------------------------------------------
+    Allocations and Declarations
+    ------------------------------------------------------------ */
+    /*1 if month contains current month*/
+    int isokay = 0;
+    /*long  time_val = 0L;*/        /* binary value returned by time() */
+    /* binary value returned by time() */
+    time_t  time_val = (time_t)(0);
+    /* interpret time_val */
+    struct tm *tmstruct = (struct tm *)NULL, *localtime();
+    /* current month 1-12 and day 1-31 */
+    int imonth, mday;
+    /* grace period */
+    int ngrace = 3;
+    char    lcmonth[128] = "\000";
+    /* lowercase month */
+    int i = 0;
+    static  char *months[] = {
+        /* month must contain current one */
+        "dec", "jan", "feb", "mar", "apr", "may", "jun",
+        "jul", "aug", "sep", "oct", "nov", "dec", "jan"
+    };
+    /* ------------------------------------------------------------
+    get current date:time info, and check month
+    ------------------------------------------------------------ */
+    /* --- lowercase input month --- */
+    if (month != NULL)           /* check that we got input */
+        for (i = 0; i < 120 && *month != '\000'; i++, month++) /* go thru month chars */
+            /* lowerase each char in month */
+            lcmonth[i] = tolower(*month);
+    /* must be invalid input */
+    if (i < 2) goto end_of_job;
+    /* null-terminate lcmonth[] */
+    lcmonth[i] = '\000';
+    /* --- get current date:time --- */
+    /* get date and time */
+    time((time_t *)(&time_val));
+    /* interpret time_val */
+    tmstruct = localtime((time_t *)(&time_val));
+    /* --- month and day  --- */
+    /* 1=jan ... 12=dec */
+    imonth = 1 + (int)(tmstruct->tm_mon);
+    /* 1-31 */
+    mday = (int)(tmstruct->tm_mday);
+    if (imonth < 1 || imonth > 12    /* quit if month out-of-range */
+            /* or date out of range */
+            ||   mday < 0 || mday > 31) goto end_of_job;
+    /* --- check input month against current date --- */
+    /* current month */
+    if (strstr(lcmonth, months[imonth]) != NULL) isokay = 1;
+    if (mday <= ngrace)              /* 1-3 within grace period */
+        /* last month */
+        if (strstr(lcmonth, months[imonth-1]) != NULL) isokay = 1;
+    if (mday >= 31 - ngrace)     /* 28-31 within grace period */
+        /* next month */
+        if (strstr(lcmonth, months[imonth+1]) != NULL) isokay = 1;
+end_of_job:
+    /*1 if month contains current month*/
+    return (isokay);
+} /* --- end-of-function ismonth() --- */
+
+/* ------------------------------------------------------------
+logging data structure, and default data to be logged
+------------------------------------------------------------ */
+/* --- logging data structure --- */
+typedef struct logdata {
+    /* ------------------------------------------------------------
+    environment variable name, max #chars to display, min mctx.msglevel to display
+    ------------------------------------------------------------ */
+    /* environment variable name */
+    char  *name;
+    /* max #chars to display */
+    int   maxlen;
+    /* min mctx.msglevel to display data */
+    int   msglevel;
+} logdata ; /* --- end-of-logdata_struct --- */
+
+/* ==========================================================================
+ * Function:    logger ( fp, mctx.msglevel, message, logvars )
+ * Purpose: Logs the environment variables specified in logvars
+ *      to fp if their mctx.msglevel is >= the passed mctx.msglevel.
+ * --------------------------------------------------------------------------
+ * Arguments:   fp (I)      FILE * to file containing log
+ *      mctx.msglevel (I)    int containing logging message level
+ *      message (I) char * to optional message, or NULL
+ *      logvars (I) logdata * to array of environment variables
+ *              to be logged
+ * --------------------------------------------------------------------------
+ * Returns: ( int )     number of variables from logvars
+ *              that were actually logged
+ * --------------------------------------------------------------------------
+ * Notes:     o
+ * ======================================================================= */
+/* --- entry point --- */
+static int logger(FILE *fp, int msglevel, char *message, logdata *logvars)
+{
+    /* ------------------------------------------------------------
+    Allocations and Declarations
+    ------------------------------------------------------------ */
+    /* logvars[] index, #vars logged */
+    int ilog = 0, nlogged = 0;
+    /* timestamp logged */
+    char    *timestamp();
+    /* getenv(name) to be logged */
+    char    *value = NULL;
+    /* ------------------------------------------------------------
+    Log each variable
+    ------------------------------------------------------------ */
+    /*emit timestamp before first var*/
+    fprintf(fp, "%s\n", timestamp(tzdelta, 0));
+    if (message != NULL)             /* optional message supplied */
+        /* emit caller-supplied message */
+        fprintf(fp, "  MESSAGE = %s\n", message);
+    if (logvars != (logdata *)NULL)      /* have logvars */
+        for (ilog = 0; logvars[ilog].name != NULL; ilog++)  /* till end-of-table */
+            if (msglevel >= logvars[ilog].msglevel)   /* check mctx.msglevel for this var */
+                if ((value = getenv(logvars[ilog].name)) /* getenv(name) to be logged */
+                        != NULL) {               /* check that name exists */
+                    fprintf(fp, "  %s = %.*s\n",    /* emit variable name = value */
+                            logvars[ilog].name, logvars[ilog].maxlen, value);
+                    /* bump #vars logged */
+                    nlogged++;
+                } /* --- end-of-for(ilog) --- */
+    /* back to caller */
+    return (nlogged);
+} /* --- end-of-function logger() --- */
+
+
+/* ==========================================================================
+ * Function:    readcachefile ( cachefile, buffer )
+ * Purpose: read cachefile into buffer
+ * --------------------------------------------------------------------------
+ * Arguments:   cachefile (I)   pointer to null-terminated char string
+ *              containing full path to file to be read
+ *      buffer (O)  pointer to unsigned char string
+ *              returning contents of cachefile
+ *              (max 64000 bytes)
+ * --------------------------------------------------------------------------
+ * Returns: ( int )     #bytes read (0 signals error)
+ * --------------------------------------------------------------------------
+ * Notes:     o
+ * ======================================================================= */
+/* --- entry point --- */
+static int readcachefile(char *cachefile, unsigned char *buffer)
+{
+    /* ------------------------------------------------------------
+    Allocations and Declarations
+    ------------------------------------------------------------ */
+    /*open cachefile for binary read*/
+    FILE    *cacheptr = fopen(cachefile, "rb");
+    /* bytes from cachefile */
+    unsigned char cachebuff[64];
+    int buflen = 32,            /* #bytes we try to read from file */
+        nread = 0,          /* #bytes actually read from file */
+        maxbytes = MAXGIFSZ,        /* max #bytes returned in buffer */
+                                    /* total #bytes read */
+        nbytes = 0;
+    /* ------------------------------------------------------------
+    initialization
+    ------------------------------------------------------------ */
+    /* --- check that files opened okay --- */
+    /*failed to open cachefile*/
+    if (cacheptr == (FILE *)NULL) goto end_of_job;
+    /* --- check that output buffer provided --- */
+    /* no buffer */
+    if (buffer == (unsigned char *)NULL) goto end_of_job;
+    /* ------------------------------------------------------------
+    read bytes from cachefile
+    ------------------------------------------------------------ */
+    while (1) {
+        /* --- read bytes from cachefile --- */
+        /* read */
+        nread = fread(cachebuff, sizeof(unsigned char), buflen, cacheptr);
+        if (nbytes + nread > maxbytes)     /* block too big for buffer */
+            /* so truncate it */
+            nread = maxbytes - nbytes;
+        /* no bytes left in cachefile */
+        if (nread < 1) break;
+        /* --- store bytes in buffer --- */
+        /* copy current block to buffer */
+        memcpy(buffer + nbytes, cachebuff, nread);
+        /* --- ready to read next block --- */
+        /* bump total #bytes emitted */
+        nbytes += nread;
+        /* no bytes left in cachefile */
+        if (nread < buflen) break;
+        /* avoid buffer overflow */
+        if (nbytes >= maxbytes) break;
+    } /* --- end-of-while(1) --- */
+end_of_job:
+    /* close file if opened */
+    if (cacheptr != NULL) fclose(cacheptr);
+    /* back with #bytes emitted */
+    return (nbytes);
+} /* --- end-of-function readcachefile() --- */
+
+
+
+
+
+/* ==========================================================================
+ * Function:    emitcache ( cachefile, maxage, valign, isbuffer )
+ * Purpose: dumps bytes from cachefile to stdout
+ * --------------------------------------------------------------------------
+ * Arguments:   cachefile (I)   pointer to null-terminated char string
+ *              containing full path to file to be dumped,
+ *              or contains buffer of bytes to be dumped
+ *      maxage (I)  int containing maxage, in seconds, for
+ *              http header, or -1 to not emit headers
+ *      valign (I)  int containing Vertical-Align:, in pixels,
+ *              for http header, or <= -999 to not emit
+ *      isbuffer (I)    1 if cachefile is buffer of bytes to be
+ *              dumped
+ * --------------------------------------------------------------------------
+ * Returns: ( int )     #bytes dumped (0 signals error)
+ * --------------------------------------------------------------------------
+ * Notes:     o
+ * ======================================================================= */
+/* --- entry point --- */
+static int emitcache(char *cachefile, int maxage, int valign, int nbytes)
+{
+    /* ------------------------------------------------------------
+    Allocations and Declarations
+    ------------------------------------------------------------ */
+    /* emit cachefile to stdout */
+    FILE    *emitptr = stdout;
+    /* bytes from cachefile */
+    unsigned char buffer[MAXGIFSZ+1];
+    /* ptr to buffer */
+    unsigned char *buffptr = buffer;
+    /* true to emit Vertical-Align: */
+    int isvalign = (abs(valign) < 999 ? 1 : 0);
+    /* ------------------------------------------------------------
+    initialization
+    ------------------------------------------------------------ */
+    /* --- check that files opened okay --- */
+    if (emitptr == (FILE *)NULL)         /* failed to open emit file */
+        /* so return 0 bytes to caller */
+        goto end_of_job;
+    /* --- read the file if necessary --- */
+    if (nbytes > 0) {              /* cachefile is buffer */
+        /* so reset buffer pointer */
+        buffptr = (unsigned char *)cachefile;
+    }
+    else {                  /* cachefile is file name */
+        if ((nbytes = readcachefile(cachefile, buffer)) /* read the file */
+                < 1) goto end_of_job;
+    }      /* quit if file not read */
+    /* --- first emit http headers if requested --- */
+    if (isemitcontenttype            /* content-type lines enabled */
+            &&   maxage >= 0)           /* caller wants http headers */
+    {
+    /* --- emit mime content-type line --- */
+        fprintf(emitptr, "Cache-Control: max-age=%d\n", maxage);
+        fprintf(emitptr, "Content-Length: %d\n", nbytes);
+        if (isvalign)             /* Vertical-Align: header wanted */
+            fprintf(emitptr, "Vertical-Align: %d\n", valign);
+        fprintf(emitptr, "Content-type: image/gif\n\n");
+    }
+    /* ------------------------------------------------------------
+    set stdout to binary mode (for Windows)
+    ------------------------------------------------------------ */
+    /* emitptr = fdopen(STDOUT_FILENO,"wb"); */  /* doesn't work portably, */
+#ifdef WINDOWS              /* so instead... */
+#ifdef HAVE_SETMODE           /* prefer (non-portable) setmode() */
+    if (setmode(fileno(stdout), O_BINARY)     /* windows specific call */
+            /* handle error */
+            == -1) ;/* sets stdout to binary mode */
+#else
+/* setmode() not available */
+#if 1
+    /* freopen() stdout binary */
+    freopen("CON", "wb", stdout);
+#else
+    /* fdopen() stdout binary */
+    stdout = fdopen(STDOUT_FILENO, "wb");
+#endif
+#endif
+#endif
+    /* ------------------------------------------------------------
+    emit bytes from cachefile
+    ------------------------------------------------------------ */
+    /* --- write bytes to stdout --- */
+    if (fwrite(buffptr, sizeof(unsigned char), nbytes, emitptr) /* write buffer */
+            <    nbytes)                /* failed to write all bytes */
+        /* reset total count to 0 */
+        nbytes = 0;
+end_of_job:
+    /* back with #bytes emitted */
+    return (nbytes);
+} /* --- end-of-function emitcache() --- */
+
 
 /* ==========================================================================
  * Function:    main() driver for mimetex.c
@@ -1945,7 +2354,7 @@ static int gif_raster(int ncolors, raster *bp, intbyte *colormap, intbyte *color
  *           ./mimetex  [-d ]       dump gif to stdout
  *              [expression expression, e.g., x^2+y^2,
  *              |-f input_file] or read expression from file
- *              [-m msglevel]   verbosity of debugging output
+ *              [-m mctx.msglevel]   verbosity of debugging output
  *              [-s fontsize]   default fontsize, 0-5
  *      -d   Rather than ascii debugging output, mimeTeX dumps the
  *           actual gif (or xbitmap) to stdout, e.g.,
@@ -1992,25 +2401,9 @@ header files and other data
 globals for gif and png callback functions
 ------------------------------------------------------------ */
 
-/* ------------------------------------------------------------
-logging data structure, and default data to be logged
------------------------------------------------------------- */
-/* --- logging data structure --- */
-typedef struct logdata {
-    /* ------------------------------------------------------------
-    environment variable name, max #chars to display, min msglevel to display
-    ------------------------------------------------------------ */
-    /* environment variable name */
-    char  *name;
-    /* max #chars to display */
-    int   maxlen;
-    /* min msglevel to display data */
-    int   msglevel;
-} logdata ; /* --- end-of-logdata_struct --- */
-
 /* --- data logged by mimeTeX --- */
 static logdata mimelog[] = {
-    /* ------ variable ------ maxlen msglevel ----- */
+    /* ------ variable ------ maxlen mctx.msglevel ----- */
     { "QUERY_STRING",         999,    4 },
     { "REMOTE_ADDR",          999,    3 },
     { "HTTP_REFERER",         999,    3 },
@@ -2103,7 +2496,7 @@ int main(int argc, char *argv[], char *envp[])
     /*patternnumcount[] index diagnostic*/
     int ipattern;
     /* --- messages --- */
-    char logfile[256] = LOGFILE,     /*log queries if msglevel>=LOGLEVEL*/
+    char logfile[256] = LOGFILE,     /*log queries if mctx.msglevel>=LOGLEVEL*/
          cachelog[256] = CACHELOG;   /* cached image log in cachepath/ */
     /* name program executed as */
     char    *progname = (argc > 0 ? argv[0] : "noname");
@@ -2113,9 +2506,15 @@ int main(int argc, char *argv[], char *envp[])
     char    *invalid_referer_msg = msgtable[invmsgnum];
     /*referer isn't host*/
     char    *invalid_referer_match = msgtable[refmsgnum];
+    mimetex_ctx mctx;
     /* ------------------------------------------------------------
     initialization
     ------------------------------------------------------------ */
+    if (mimetex_ctx_init(&mctx)) {
+        fprintf(stderr, "Failed to initialize context\n");
+        return 1;
+    }
+
     /* install extra handlers */
     {
         int i;
@@ -2130,7 +2529,7 @@ int main(int argc, char *argv[], char *envp[])
     /* --- set global variables --- */
     strcpy(pathprefix, PATHPREFIX);
     /* for command-line mode output */
-    msgfp = stdout;
+    mctx.msgfp = stdout;
     /* true to emit mime content-type */
     isemitcontenttype = 1;
     /* true to inhibit math mode */
@@ -2151,18 +2550,7 @@ int main(int argc, char *argv[], char *envp[])
     iscaching = ISCACHING;
     /* signal that image not in memory */
     /* default foreground colors */
-    fgred = (isblackonwhite?255:0);
-    fggreen = (isblackonwhite?255:0);
-    fgblue = (isblackonwhite?255:0);
-    /* default background colors */
-    bgred = (isblackonwhite?0:255);
-    bggreen = (isblackonwhite?0:255);
-    bgblue = (isblackonwhite?0:255);
 
-    /* set shrinkfactor */
-    shrinkfactor = shrinkfactors[NORMALSIZE];
-    for (ipattern = 1; ipattern <= 51; ipattern++)
-        patternnumcount0[ipattern] = patternnumcount1[ipattern] = 0;
     /* ---
      * check QUERY_STRING query for expression overriding command-line arg
      * ------------------------------------------------------------ */
@@ -2280,10 +2668,10 @@ int main(int argc, char *argv[], char *envp[])
                         argnum--;
                         break;
                     case 'm':
-                        if (argnum < argc) msglevel = atoi(argv[argnum]);
+                        if (argnum < argc) mctx.msglevel = atoi(argv[argnum]);
                         break;
                     case 'o':
-                        istransparent = (istransparent ? 0 : 1);
+                        mctx.istransparent = (mctx.istransparent ? 0 : 1);
                         argnum--;
                         break;
                     case 'q':
@@ -2295,7 +2683,7 @@ int main(int argc, char *argv[], char *envp[])
                         argnum--;
                         break;
                     case 'a':
-                        aaalgorithm = atoi(argv[argnum]);
+                        mctx.aaalgorithm = atoi(argv[argnum]);
                         break;
                     case 's':
                         if (argnum < argc) size = atoi(argv[argnum]);
@@ -2341,13 +2729,13 @@ int main(int argc, char *argv[], char *envp[])
             outfile = outfilebuf;
         }
 
-        if (ptype == 1 && aaalgorithm)
-            aaalgorithm = 0;
+        if (ptype == 1 && mctx.aaalgorithm)
+            mctx.aaalgorithm = 0;
 
-        if (msglevel >= 999 && msgfp != NULL) { /* display command-line info */
-            fprintf(msgfp, "argc=%d, progname=%s, #args=%d, #badargs=%d\n",
+        if (mctx.msglevel >= 999 && mctx.msgfp != NULL) { /* display command-line info */
+            fprintf(mctx.msgfp, "argc=%d, progname=%s, #args=%d, #badargs=%d\n",
                     argc, progname, nargs, nbadargs);
-            fprintf(msgfp, "cachepath=\"%.50s\" pathprefix=\"%.50s\"\n",
+            fprintf(mctx.msgfp, "cachepath=\"%.50s\" pathprefix=\"%.50s\"\n",
                     cachepath, pathprefix);
         }
         /* ---
@@ -2424,8 +2812,8 @@ int main(int argc, char *argv[], char *envp[])
             unescape_url(expression, 0);
             /* repeat */
             unescape_url(expression, 0);
-            /* msglevel for forms */
-            if (0) msglevel = FORMLEVEL;
+            /* mctx.msglevel for forms */
+            if (0) mctx.msglevel = FORMLEVEL;
             isformdata = 1;
         }           /* set flag to signal form data */
         else
@@ -2443,20 +2831,20 @@ int main(int argc, char *argv[], char *envp[])
      * check queries for embedded prefixes signalling special processing
      * ------------------------------------------------------------ */
     if (isquery) {               /* only check queries */
-        /* --- check for msglevel=###$ prefix --- */
-        if (!memcmp(expression, "msglevel=", 9)) { /* query has msglevel prefix */
-            /* find $ delim following msglevel*/
+        /* --- check for mctx.msglevel=###$ prefix --- */
+        if (!memcmp(expression, "mctx.msglevel=", 9)) { /* query has mctx.msglevel prefix */
+            /* find $ delim following mctx.msglevel*/
             char *delim = strchr(expression, '$');
             if (delim != (char *)NULL) {    /* check that we found delim */
                 /* replace delim with null */
                 *delim = '\000';
-                if (seclevel <= 9)       /* permit msglevel specification */
-                    /* interpret ### in msglevel###$ */
-                    msglevel = atoi(expression + 9);
+                if (seclevel <= 9)       /* permit mctx.msglevel specification */
+                    /* interpret ### in mctx.msglevel###$ */
+                    mctx.msglevel = atoi(expression + 9);
                 strcpy(expression, delim + 1);
             }
         } /* shift out prefix and delim */
-        /* --- next check for logfile=xxx$ prefix (must follow msglevel) --- */
+        /* --- next check for logfile=xxx$ prefix (must follow mctx.msglevel) --- */
         if (!memcmp(expression, "logfile=", 8)) { /* query has logfile= prefix */
             /* find $ delim following logfile=*/
             char *delim = strchr(expression, '$');
@@ -2474,39 +2862,39 @@ int main(int argc, char *argv[], char *envp[])
      * log query (e.g., for debugging)
      * ------------------------------------------------------------ */
     if (isquery)                 /* only log query_string's */
-        if (msglevel >= LOGLEVEL        /* check if logging */
+        if (mctx.msglevel >= LOGLEVEL        /* check if logging */
                 &&   seclevel <= 5)            /* and if logging permitted */
             if (logfile != NULL)       /* if a logfile is given */
                 if (*logfile != '\000') {         /*and if it's not an empty string*/
-                    if ((msgfp = fopen(logfile, "a"))  /* open logfile for append */
+                    if ((mctx.msgfp = fopen(logfile, "a"))  /* open logfile for append */
                             !=   NULL) {            /* ignore logging if can't open */
                         /* --- default logging --- */
                         /* log query */
-                        logger(msgfp, msglevel, expression, mimelog);
+                        logger(mctx.msgfp, mctx.msglevel, expression, mimelog);
                         /* --- additional debug logging (argv and environment) --- */
-                        if (msglevel >= 9) {        /* log environment */
+                        if (mctx.msglevel >= 9) {        /* log environment */
                             /*char name[999],*value;*/
                             int i;
-                            fprintf(msgfp, "Command-line arguments...\n");
+                            fprintf(mctx.msgfp, "Command-line arguments...\n");
                             if (argc < 1)            /* no command-line args */
-                                fprintf(msgfp, "  ...argc=%d, no argv[] variables\n", argc);
+                                fprintf(mctx.msgfp, "  ...argc=%d, no argv[] variables\n", argc);
                             else
                                 for (i = 0; i < argc; i++)  /* display all argv[]'s */
-                                    fprintf(msgfp, "  argv[%d] = \"%s\"\n", i, argv[i]);
+                                    fprintf(mctx.msgfp, "  argv[%d] = \"%s\"\n", i, argv[i]);
 #ifdef DUMPENVP         /* char *envp[] available for dump */
-                            fprintf(msgfp, "Environment variables (using envp[])...\n");
+                            fprintf(mctx.msgfp, "Environment variables (using envp[])...\n");
                             if (envp == (char **)NULL)   /* envp not provided */
-                                fprintf(msgfp, "  ...envp[] environment variables not available\n");
+                                fprintf(mctx.msgfp, "  ...envp[] environment variables not available\n");
                             else
                                 for (i = 0; ; i++)      /* display all envp[]'s */
                                     if (envp[i] == (char *)NULL) break;
-                                    else fprintf(msgfp, "  envp[%d] = \"%s\"\n", i, envp[i]);
+                                    else fprintf(mctx.msgfp, "  envp[%d] = \"%s\"\n", i, envp[i]);
 #endif
 /* --- DUMPENVP ---*/
 #ifdef DUMPENVIRON  /* skip what should be redundant output */
-                            fprintf(msgfp, "Environment variables (using environ)...\n");
+                            fprintf(mctx.msgfp, "Environment variables (using environ)...\n");
                             if (environ == (char **)NULL)    /* environ not provided */
-                                fprintf(msgfp, "  ...extern environ variables not available\n");
+                                fprintf(mctx.msgfp, "  ...extern environ variables not available\n");
                             else
                                 for (i = 0; ; i++)      /*display environ[] and getenv()'s*/
                                     if (environ[i] == (char *)NULL) break;
@@ -2520,27 +2908,27 @@ int main(int argc, char *argv[], char *envp[])
                                         } /* and look up name using getenv() */
                                         /* missing = delim in environ[i] */
                                         else strcpy(name, "NULL");
-                                        fprintf(msgfp, "environ[%d]: \"%s\"\n\tgetenv(%s) = \"%s\"\n",
+                                        fprintf(mctx.msgfp, "environ[%d]: \"%s\"\n\tgetenv(%s) = \"%s\"\n",
                                                 i, environ[i], name, (value == NULL ? "NULL" : value));
                                     } /* --- end-of-if/else --- */
 #endif
 /* --- DUMPENVIRON ---*/
-                        } /* --- end-of-if(msglevel>=9) --- */
+                        } /* --- end-of-if(mctx.msglevel>=9) --- */
                         /* --- close log file if no longer needed --- */
-                        if (msglevel < DBGLEVEL) {      /* logging, but not debugging */
+                        if (mctx.msglevel < DBGLEVEL) {      /* logging, but not debugging */
                             /* so log separator line, */
-                            fprintf(msgfp, "%s\n", dashes);
+                            fprintf(mctx.msgfp, "%s\n", dashes);
                             /* close logfile immediately, */
-                            fclose(msgfp);
-                            msgfp = NULL;
-                        }         /* and reset msgfp pointer */
+                            fclose(mctx.msgfp);
+                            mctx.msgfp = NULL;
+                        }         /* and reset mctx.msgfp pointer */
                         else
                             /* set query logging flag */
                             isqlogging = 1;
-                    } /* --- end-of-if(msglevel>=LOGLEVEL) --- */
+                    } /* --- end-of-if(mctx.msglevel>=LOGLEVEL) --- */
                     else
                     /* couldn't open logfile */
-                        msglevel = 0;
+                        mctx.msglevel = 0;
                 }            /* can't emit messages */
     /* ---
      * prepend prefix to submitted expression
@@ -2626,10 +3014,10 @@ int main(int argc, char *argv[], char *envp[])
                 char *deny = denyreferer[iref].referer;
                 /* null signals end-of-table */
                 if (deny == NULL) break;
-                if (msglevel >= 999 && msgfp != NULL) { /* debugging */
-                    fprintf(msgfp, "main> invalid iref=%d: deny=%s http_referer=%s\n",
+                if (mctx.msglevel >= 999 && mctx.msgfp != NULL) { /* debugging */
+                    fprintf(mctx.msgfp, "main> invalid iref=%d: deny=%s http_referer=%s\n",
                             iref, deny, (http_referer == NULL ? "null" : http_referer));
-                    fflush(msgfp);
+                    fflush(mctx.msgfp);
                 }
                 if (*deny == '\000') {     /* signal to check for no referer */
                     if (http_referer == NULL)      /* http_referer not supplied */
@@ -2678,11 +3066,11 @@ int main(int argc, char *argv[], char *envp[])
      * emit copyright, gnu/gpl notice (if "interactive")
      * ------------------------------------------------------------ */
     if (!isdumpimage) { /* don't mix ascii with image dump */
-        if ((!isquery || isqlogging) && msgfp != NULL) { /* called from command line */
+        if ((!isquery || isqlogging) && mctx.msgfp != NULL) { /* called from command line */
             /* display copyright */
-            fprintf(msgfp, "%s\n%s\n", copyright1, copyright2);
+            fprintf(mctx.msgfp, "%s\n%s\n", copyright1, copyright2);
             /*revision date*/
-            fprintf(msgfp, "Most recent revision: %s\n", REVISIONDATE);
+            fprintf(mctx.msgfp, "Most recent revision: %s\n", REVISIONDATE);
         } /* --- end-of-if(!isquery...) --- */
     }
     /* ------------------------------------------------------------
@@ -2690,25 +3078,25 @@ int main(int argc, char *argv[], char *envp[])
     ------------------------------------------------------------ */
     /* --- preprocess expression, converting LaTeX constructs for mimeTeX  --- */
     if (expression != NULL) {        /* have expression to rasterize */
-        expression = mimeprep(expression);
+        expression = mimeprep(&mctx, expression);
     }  /* preprocess expression */
     /* --- double-check that we actually have an expression to rasterize --- */
     if (expression == NULL) {        /* nothing to rasterize */
         /*signal error to parent*/
         if (exitstatus == 0) exitstatus = errorstatus;
-        if ((!isquery || isqlogging) && msgfp != NULL) { /*emit error if not query*/
-            if (exitstatus != 0) fprintf(msgfp, "Exit code = %d,\n", exitstatus);
-            fprintf(msgfp, "No LaTeX expression to rasterize\n");
+        if ((!isquery || isqlogging) && mctx.msgfp != NULL) { /*emit error if not query*/
+            if (exitstatus != 0) fprintf(mctx.msgfp, "Exit code = %d,\n", exitstatus);
+            fprintf(mctx.msgfp, "No LaTeX expression to rasterize\n");
         }
         goto end_of_job;
     }            /* and then quit */
     /* --- rasterize expression --- */
-    if ((sp = rasterize(expression, size)) == NULL) {  /* failed to rasterize */
+    if ((sp = rasterize(&mctx, expression, size)) == NULL) {  /* failed to rasterize */
         /*signal error to parent*/
         if (exitstatus == 0) exitstatus = errorstatus;
-        if ((!isquery || isqlogging) && msgfp != NULL) { /*emit error if not query*/
-            if (exitstatus != 0) fprintf(msgfp, "Exit code = %d,\n", exitstatus);
-            fprintf(msgfp, "Failed to rasterize %.2048s\n", expression);
+        if ((!isquery || isqlogging) && mctx.msgfp != NULL) { /*emit error if not query*/
+            if (exitstatus != 0) fprintf(mctx.msgfp, "Exit code = %d,\n", exitstatus);
+            fprintf(mctx.msgfp, "Failed to rasterize %.2048s\n", expression);
         }
         if (isquery) {             /* try to display failed expression*/
             /* buffer for failed expression */
@@ -2723,8 +3111,9 @@ int main(int argc, char *argv[], char *envp[])
             strcat(errormsg, strdetex(expression, 0));
             /* finish up */
             strcat(errormsg, "}\\hspace{10}}\\end{gather}}");
-            if ((sp = rasterize(errormsg, 1)) == NULL)  /*couldn't rasterize errmsg*/
-                sp = rasterize(   /* so rasterize generic error */
+            if ((sp = rasterize(&mctx, errormsg, 1)) == NULL)  /*couldn't rasterize errmsg*/
+                /* so rasterize generic error */
+                sp = rasterize(&mctx,
                          "\\red\\rm~\\fbox{mimeTeX~failed~to~render\\\\your~expression}", 1);
         }
         /* re-check for err message failure*/
@@ -2733,7 +3122,7 @@ int main(int argc, char *argv[], char *envp[])
     /* ---no border requested, but this adjusts width to multiple of 8 bits--- */
     /* for mime xbitmaps must have... */
     /* image width multiple of 8 bits */
-    bp = border_raster(sp->image, 0, 0, 0, 1);
+    bp = border_raster(&mctx, sp->image, 0, 0, 0, 1);
     /* global copy for gif,png output */
     sp->image = bp;
     if (sp != NULL && bp != NULL) {      /* have raster */
@@ -2744,7 +3133,7 @@ int main(int argc, char *argv[], char *envp[])
     /* ------------------------------------------------------------
     generate anti-aliased bytemap from (bordered) bitmap
     ------------------------------------------------------------ */
-    if (aaalgorithm) {              /* we want anti-aliased bitmap */
+    if (mctx.aaalgorithm) {              /* we want anti-aliased bitmap */
         /* ---
          * allocate bytemap and colormap as per width*height of bitmap
          * ------------------------------------------------------------ */
@@ -2753,12 +3142,12 @@ int main(int argc, char *argv[], char *envp[])
         /* anti-aliasing wanted */
         /* malloc bytemap and colormap */
         if ((bytemap_raster = (intbyte *)malloc(nbytes)) == NULL) {
-            fprintf(msgfp, "allocation failure\n");
+            fprintf(mctx.msgfp, "allocation failure\n");
             goto end_of_job;
         }
         /* have bytemap, so... */
         if ((colormap_raster = (intbyte *)malloc(nbytes)) == NULL) {
-            fprintf(msgfp, "allocation failure\n");
+            fprintf(mctx.msgfp, "allocation failure\n");
             goto end_of_job;
         }
         /* ---
@@ -2768,64 +3157,64 @@ int main(int argc, char *argv[], char *envp[])
          * select anti-aliasing algorithm
          * ------------------------------------------------------------ */
         /* generate bytemap for lowpass */
-        switch (aaalgorithm) {          /* choose antialiasing algorithm */
+        switch (mctx.aaalgorithm) {          /* choose antialiasing algorithm */
         default:
             /* unrecognized algorithm */
-            aaalgorithm = 0;
+            mctx.aaalgorithm = 0;
             break;
         case 1:              /* 1 for aalowpass() */
             /*my own lowpass filter*/
             /*failed, so turn off anti-aliasing*/
-            if (aalowpass(bp, bytemap_raster, grayscale) == 0) {
-                aaalgorithm = 0;
+            if (aalowpass(&mctx,bp, bytemap_raster, grayscale) == 0) {
+                mctx.aaalgorithm = 0;
             }
             break;
         case 2:              /*2 for netpbm pnmalias.c algorithm*/
-            if (aapnm(bp, bytemap_raster, grayscale) == 0) {
-                aaalgorithm = 0;
+            if (aapnm(&mctx, bp, bytemap_raster, grayscale) == 0) {
+                mctx.aaalgorithm = 0;
             }
             break;
         case 3:              /*3 for aapnm() based on aagridnum()*/
-            if (aapnmlookup(bp, bytemap_raster, grayscale) == 0) {
-                aaalgorithm = 0;
+            if (aapnmlookup(&mctx, bp, bytemap_raster, grayscale) == 0) {
+                mctx.aaalgorithm = 0;
             }
             break;
         case 4:              /* 4 for aalookup() table lookup */
-            if (aalowpasslookup(bp, bytemap_raster, grayscale) == 0) {
-                aaalgorithm = 0;
+            if (aalowpasslookup(&mctx, bp, bytemap_raster, grayscale) == 0) {
+                mctx.aaalgorithm = 0;
             }
             break;
         } /* --- end-of-switch(aaalgorithm) --- */
-        if (aaalgorithm) {              /* we have bytemap_raster */
+        if (mctx.aaalgorithm) {              /* we have bytemap_raster */
             /* ---
              * emit aalookup() pattern# counts/percents diagnostics
              * ------------------------------------------------------------ */
-            if (!isquery && msgfp != NULL && msglevel >= 99) { /*emit patternnumcounts*/
+            if (!isquery && mctx.msgfp != NULL && mctx.msglevel >= 99) { /*emit patternnumcounts*/
                 /* init total w,b center counts */
                 int pcount0 = 0, pcount1 = 0;
                 for (ipattern = 1; ipattern <= 51; ipattern++) { /*each possible pattern*/
                     if (ipattern > 1)          /* ignore all-white squares */
                         /* bump total white centers */
-                        pcount0 += patternnumcount0[ipattern];
-                    pcount1 += patternnumcount1[ipattern];
+                        pcount0 += mctx.patternnumcount0[ipattern];
+                    pcount1 += mctx.patternnumcount1[ipattern];
                 } /* bump total black centers */
                 if (pcount0 + pcount1 > 0)      /* have pcounts (using aalookup) */
-                    fprintf(msgfp, "  aalookup() patterns excluding#1 white"
+                    fprintf(mctx.msgfp, "  aalookup() patterns excluding#1 white"
                             " (%%'s are in tenths of a percent)...\n");
                 for (ipattern = 1; ipattern <= 51; ipattern++) { /*each possible pattern*/
-                    int tot = patternnumcount0[ipattern] + patternnumcount1[ipattern];
+                    int tot = mctx.patternnumcount0[ipattern] + mctx.patternnumcount1[ipattern];
                     if (tot > 0)           /* this pattern occurs in image */
-                        fprintf(msgfp,
+                        fprintf(mctx.msgfp,
                                 "  pattern#%2d: %7d(%6.2f%%) +%7d(%6.2f%%) =%7d(%6.2f%%)\n",
-                                ipattern, patternnumcount0[ipattern], (ipattern <= 1 ? 999.99 :
-                                                                       1000.*((double)patternnumcount0[ipattern]) / ((double)pcount0)),
-                                patternnumcount1[ipattern],
-                                1000.*((double)patternnumcount1[ipattern]) / ((double)pcount1),
+                                ipattern, mctx.patternnumcount0[ipattern], (ipattern <= 1 ? 999.99 :
+                                                                       1000.*((double)mctx.patternnumcount0[ipattern]) / ((double)pcount0)),
+                                mctx.patternnumcount1[ipattern],
+                                1000.*((double)mctx.patternnumcount1[ipattern]) / ((double)pcount1),
                                 tot, (ipattern <= 1 ? 999.99 :
                                       1000.*((double)tot) / ((double)(pcount0 + pcount1))));
                 }
                 if (pcount0 + pcount1 > 0) /* true when using aalookup() */
-                    fprintf(msgfp,
+                    fprintf(mctx.msgfp,
                             "all patterns: %7d          +%7d          =%7d  total pixels\n",
                             pcount0, pcount1, pcount0 + pcount1);
             }
@@ -2833,53 +3222,53 @@ int main(int argc, char *argv[], char *envp[])
                 /* ---
                  * finally, generate colors and colormap
                  * ------------------------------------------------------------ */
-                ncolors = aacolormap(bytemap_raster, nbytes, colors, colormap_raster);
+                ncolors = aacolormap(&mctx, bytemap_raster, nbytes, colors, colormap_raster);
                 if (ncolors < 2) {     /* failed */
                     /* so turn off anti-aliasing */
-                    aaalgorithm = 0;
+                    mctx.aaalgorithm = 0;
                     ncolors = 2;
                 }        /* and reset for black&white */
             }
         }
     } /* --- end-of-if(isaa) --- */
     /* ------------------------------------------------------------
-    display results on msgfp if called from command line (usually for testing)
+    display results on mctx.msgfp if called from command line (usually for testing)
     ------------------------------------------------------------ */
-    if ((!isquery || isqlogging) || msglevel >= 99) {
+    if ((!isquery || isqlogging) || mctx.msglevel >= 99) {
         /*command line or debuging*/
         if (!isdumpimage) {         /* don't mix ascii with image dump */
             /* ---
              * display ascii image of rasterize()'s rasterized bitmap
              * ------------------------------------------------------------ */
-            fprintf(msgfp, "\nAscii dump of bitmap image...\n");
-            type_raster(bp, msgfp);
+            fprintf(mctx.msgfp, "\nAscii dump of bitmap image...\n");
+            type_raster(&mctx, bp, mctx.msgfp);
             /* ---
              * display anti-aliasing results applied to rasterized bitmap
              * ------------------------------------------------------------ */
-            if (aaalgorithm) {                /* if anti-aliasing applied */
+            if (mctx.aaalgorithm) {                /* if anti-aliasing applied */
                 /* colors[] index */
                 int igray;
                 /* --- anti-aliased bytemap image --- */
-                if (msgfp != NULL && msglevel >= 9) { /* don't usually emit raw bytemap */
-                    fprintf(msgfp, "\nHex dump of anti-aliased bytemap, " /*emit bytemap*/
+                if (mctx.msgfp != NULL && mctx.msglevel >= 9) { /* don't usually emit raw bytemap */
+                    fprintf(mctx.msgfp, "\nHex dump of anti-aliased bytemap, " /*emit bytemap*/
                             "asterisks denote \"black\" bytes (value=%d)...\n", grayscale - 1);
-                    type_bytemap(bytemap_raster, grayscale, bp->width, bp->height, msgfp);
+                    type_bytemap(&mctx, bytemap_raster, grayscale, bp->width, bp->height, mctx.msgfp);
                 }
                 if (colormap_raster) {
                     /* --- colormap image --- */
-                    fprintf(msgfp, "\nHex dump of colormap indexes, " /* emit colormap */
+                    fprintf(mctx.msgfp, "\nHex dump of colormap indexes, " /* emit colormap */
                             "asterisks denote \"black\" bytes (index=%d)...\n", ncolors - 1);
-                    type_bytemap(colormap_raster, ncolors, bp->width, bp->height, msgfp);
+                    type_bytemap(&mctx, colormap_raster, ncolors, bp->width, bp->height, mctx.msgfp);
                     /* --- rgb values corresponding to colormap indexes */
-                    fprintf(msgfp, "\nThe %d colormap indexes denote rgb values...", ncolors);
+                    fprintf(mctx.msgfp, "\nThe %d colormap indexes denote rgb values...", ncolors);
                     for (igray = 0; igray < ncolors; igray++) /* show colors[] values */
-                        fprintf(msgfp, "%s%2x-->%3d", (igray % 5 ? "   " : "\n"),
+                        fprintf(mctx.msgfp, "%s%2x-->%3d", (igray % 5 ? "   " : "\n"),
                                 igray, (int)(colors[ncolors-1] - colors[igray]));
                     /* always needs a final newline */
-                    fprintf(msgfp, "\n");
+                    fprintf(mctx.msgfp, "\n");
                 }
             } /* --- end-of-if(isaa) --- */
-        } /* --- end-of-if(!isquery||msglevel>=9) --- */
+        } /* --- end-of-if(!isquery||mctx.msglevel>=9) --- */
     }
     /* ------------------------------------------------------------
     emit xbitmap or gif image, and exit
@@ -2890,12 +3279,12 @@ int main(int argc, char *argv[], char *envp[])
             FILE *fp = fopen(outfile, "wb");
             if (fp != NULL) {
                 if (ptype == 0) {
-                    gif_raster(ncolors, bp, colormap_raster, colors, fp, NULL, 0);
+                    gif_raster(&mctx, ncolors, bp, colormap_raster, colors, fp, NULL, 0);
                 } else if (ptype == 1) {
                     if (ncolors == 2)
                         type_pbmpgm(bp, 1, fp);  /* emit b/w pbm file */
                     else
-                        fprintf(msgfp, "-g1 (pbm) doesn't allow grayscaled images\n");
+                        fprintf(mctx.msgfp, "-g1 (pbm) doesn't allow grayscaled images\n");
                 } else if (ptype == 2) {
                     /*construct arg for write_pbmpgm()*/
                     raster pbm_raster;
@@ -2944,7 +3333,7 @@ int main(int argc, char *argv[], char *envp[])
                     /* so nothing else to do */
                     goto end_of_job;
                 /* --- log caching request --- */
-                if (msglevel >= 1             /* check if logging */
+                if (mctx.msglevel >= 1             /* check if logging */
                         /*&&   seclevel <= 5*/)      /* and if logging permitted */
                     if (cachelog != NULL)        /* if a logfile is given */
                         if (*cachelog != '\000') {      /*and if it's not an empty string*/
@@ -2992,13 +3381,13 @@ int main(int argc, char *argv[], char *envp[])
         } /* --- end-of-if(iscaching) --- */
 
         {
-            int gifSize;
+            int gifSize = 0;
             char gif_buffer[MAXGIFSZ] = "\000";  /* or gif written in memory buffer */
             FILE *fp = iscaching ? fopen(cachefile, "wb"): NULL;
             if (fp == NULL)
-                gifSize = gif_raster(ncolors, bp, colormap_raster, colors, NULL, gif_buffer, sizeof(gif_buffer));
+                gifSize = gif_raster(&mctx, ncolors, bp, colormap_raster, colors, NULL, gif_buffer, sizeof(gif_buffer));
             else
-                gif_raster(ncolors, bp, colormap_raster, colors, fp, NULL, 0);
+                gif_raster(&mctx, ncolors, bp, colormap_raster, colors, fp, NULL, 0);
             /* --- may need to emit image from cached file or from memory --- */
             if (iscaching)            /* caching enabled */
                 /*emit cached image (hopefully)*/
@@ -3013,14 +3402,14 @@ end_of_job:
     /*and colormap_raster*/
     if (colormap_raster != NULL)free(colormap_raster);
     /* and free expression */
-    if (1 && sp != NULL) delete_subraster(sp);
-    if (msgfp != NULL          /* have message/log file open */
-            &&   msgfp != stdout) {       /* and it's not stdout */
-        fprintf(msgfp, "mimeTeX> successful end-of-job at %s\n",
+    if (1 && sp != NULL) delete_subraster(&mctx, sp);
+    if (mctx.msgfp != NULL          /* have message/log file open */
+            &&   mctx.msgfp != stdout) {       /* and it's not stdout */
+        fprintf(mctx.msgfp, "mimeTeX> successful end-of-job at %s\n",
                 timestamp(tzdelta, 0));
         /* so log separator line */
-        fprintf(msgfp, "%s\n", dashes);
-        fclose(msgfp);
+        fprintf(mctx.msgfp, "%s\n", dashes);
+        fclose(mctx.msgfp);
     }           /* and close logfile */
     /* --- dump memory leaks in debug window if in MS VC++ debug mode --- */
 #if defined(_CRTDBG_MAP_ALLOC)
@@ -3034,351 +3423,4 @@ end_of_job:
     exit(exitstatus);
 #endif
 } /* --- end-of-function main() --- */
-
-/* ==========================================================================
- * Function:    CreateGifFromEq ( expression, gifFileName )
- * Purpose: shortcut method to create GIF file for expression,
- *      with antialising and all other capabilities
- * --------------------------------------------------------------------------
- * Arguments:   expression (I)  char *ptr to null-terminated string
- *              containing LaTeX expression to be rendred
- *      gifFileName (I) char *ptr to null-terminated string
- *              containing name of output gif file
- * --------------------------------------------------------------------------
- * Returns: ( int )     exit value from main (0 if successful)
- * --------------------------------------------------------------------------
- * Notes:     o This function is the entry point when mimeTeX is built
- *      as a Win32 DLL rather then a standalone app or CGI
- *        o Contributed to mimeTeX by Shital Shah.  See his homepage
- *        http://www.shitalshah.com
- *        o Shital discusses the mimeTeX Win32 DLL project at
- *        http://www.codeproject.com/dotnet/Eq2Img.asp
- *      and you can download his latest code from
- *        http://www.shitalshah.com/dev/eq2img_all.zip
- * ======================================================================= */
-/* --- include function to expose Win32 DLL to outside world --- */
-#if defined(_USRDLL)
-extern _declspec(dllexport)int _cdecl
-CreateGifFromEq(char *expression, char *gifFileName);
-#endif
-/* --- entry point --- */
-int CreateGifFromEq(char *expression, char *gifFileName)
-{
-    /* ------------------------------------------------------------
-    Allocations and Declarations
-    ------------------------------------------------------------ */
-    /* main() akways returns an int */
-    int main();
-    /* --- set constants --- */
-    /* count of args supplied to main() */
-    int argc = 4;
-    char    *argv[5] = {    /* command line args to run with -e option */ "MimeTeXWin32DLL", "-e", /* constant args */
-                       /*gifFileName, expression,*/ NULL, NULL, NULL
-                       };
-    /* --- set argv[]'s not computable at load time --- */
-    /* args are -e gifFileName */
-    argv[2] = gifFileName;
-    /* and now  -e gifFileName expression */
-    argv[3] = expression;
-    /* ------------------------------------------------------------
-    Run mimeTeX in command-line mode with -e (export) option, and then return
-    ------------------------------------------------------------ */
-    return  main(argc, argv
-#ifdef DUMPENVP
-                 , NULL
-#endif
-                ) ;
-} /* --- end-of-function CreateGifFromEq() --- */
-
-
-/* ==========================================================================
- * Function:    ismonth ( char *month )
- * Purpose: returns 1 if month contains current month "jan"..."dec".
- * --------------------------------------------------------------------------
- * Arguments:   month (I)   char * containing null-terminated string
- *              in which "jan"..."dec" is (putatively)
- *              contained as a substring.
- * --------------------------------------------------------------------------
- * Returns: ( int )     1 if month contains current month,
- *              0 otherwise
- * --------------------------------------------------------------------------
- * Notes:     o There's a three day "grace period", e.g., Dec 3 mtaches Nov.
- * ======================================================================= */
-/* --- entry point --- */
-int ismonth(char *month)
-{
-    /* ------------------------------------------------------------
-    Allocations and Declarations
-    ------------------------------------------------------------ */
-    /*1 if month contains current month*/
-    int isokay = 0;
-    /*long  time_val = 0L;*/        /* binary value returned by time() */
-    /* binary value returned by time() */
-    time_t  time_val = (time_t)(0);
-    /* interpret time_val */
-    struct tm *tmstruct = (struct tm *)NULL, *localtime();
-    /* current month 1-12 and day 1-31 */
-    int imonth, mday;
-    /* grace period */
-    int ngrace = 3;
-    char    lcmonth[128] = "\000";
-    /* lowercase month */
-    int i = 0;
-    static  char *months[] = {
-        /* month must contain current one */
-        "dec", "jan", "feb", "mar", "apr", "may", "jun",
-        "jul", "aug", "sep", "oct", "nov", "dec", "jan"
-    };
-    /* ------------------------------------------------------------
-    get current date:time info, and check month
-    ------------------------------------------------------------ */
-    /* --- lowercase input month --- */
-    if (month != NULL)           /* check that we got input */
-        for (i = 0; i < 120 && *month != '\000'; i++, month++) /* go thru month chars */
-            /* lowerase each char in month */
-            lcmonth[i] = tolower(*month);
-    /* must be invalid input */
-    if (i < 2) goto end_of_job;
-    /* null-terminate lcmonth[] */
-    lcmonth[i] = '\000';
-    /* --- get current date:time --- */
-    /* get date and time */
-    time((time_t *)(&time_val));
-    /* interpret time_val */
-    tmstruct = localtime((time_t *)(&time_val));
-    /* --- month and day  --- */
-    /* 1=jan ... 12=dec */
-    imonth = 1 + (int)(tmstruct->tm_mon);
-    /* 1-31 */
-    mday = (int)(tmstruct->tm_mday);
-    if (imonth < 1 || imonth > 12    /* quit if month out-of-range */
-            /* or date out of range */
-            ||   mday < 0 || mday > 31) goto end_of_job;
-    /* --- check input month against current date --- */
-    /* current month */
-    if (strstr(lcmonth, months[imonth]) != NULL) isokay = 1;
-    if (mday <= ngrace)              /* 1-3 within grace period */
-        /* last month */
-        if (strstr(lcmonth, months[imonth-1]) != NULL) isokay = 1;
-    if (mday >= 31 - ngrace)     /* 28-31 within grace period */
-        /* next month */
-        if (strstr(lcmonth, months[imonth+1]) != NULL) isokay = 1;
-end_of_job:
-    /*1 if month contains current month*/
-    return (isokay);
-} /* --- end-of-function ismonth() --- */
-
-
-/* ==========================================================================
- * Function:    logger ( fp, msglevel, message, logvars )
- * Purpose: Logs the environment variables specified in logvars
- *      to fp if their msglevel is >= the passed msglevel.
- * --------------------------------------------------------------------------
- * Arguments:   fp (I)      FILE * to file containing log
- *      msglevel (I)    int containing logging message level
- *      message (I) char * to optional message, or NULL
- *      logvars (I) logdata * to array of environment variables
- *              to be logged
- * --------------------------------------------------------------------------
- * Returns: ( int )     number of variables from logvars
- *              that were actually logged
- * --------------------------------------------------------------------------
- * Notes:     o
- * ======================================================================= */
-/* --- entry point --- */
-int logger(FILE *fp, int msglevel, char *message, logdata *logvars)
-{
-    /* ------------------------------------------------------------
-    Allocations and Declarations
-    ------------------------------------------------------------ */
-    /* logvars[] index, #vars logged */
-    int ilog = 0, nlogged = 0;
-    /* timestamp logged */
-    char    *timestamp();
-    /* getenv(name) to be logged */
-    char    *value = NULL;
-    /* ------------------------------------------------------------
-    Log each variable
-    ------------------------------------------------------------ */
-    /*emit timestamp before first var*/
-    fprintf(fp, "%s\n", timestamp(tzdelta, 0));
-    if (message != NULL)             /* optional message supplied */
-        /* emit caller-supplied message */
-        fprintf(fp, "  MESSAGE = %s\n", message);
-    if (logvars != (logdata *)NULL)      /* have logvars */
-        for (ilog = 0; logvars[ilog].name != NULL; ilog++)  /* till end-of-table */
-            if (msglevel >= logvars[ilog].msglevel)   /* check msglevel for this var */
-                if ((value = getenv(logvars[ilog].name)) /* getenv(name) to be logged */
-                        != NULL) {               /* check that name exists */
-                    fprintf(fp, "  %s = %.*s\n",    /* emit variable name = value */
-                            logvars[ilog].name, logvars[ilog].maxlen, value);
-                    /* bump #vars logged */
-                    nlogged++;
-                } /* --- end-of-for(ilog) --- */
-    /* back to caller */
-    return (nlogged);
-} /* --- end-of-function logger() --- */
-
-
-/* ==========================================================================
- * Function:    emitcache ( cachefile, maxage, valign, isbuffer )
- * Purpose: dumps bytes from cachefile to stdout
- * --------------------------------------------------------------------------
- * Arguments:   cachefile (I)   pointer to null-terminated char string
- *              containing full path to file to be dumped,
- *              or contains buffer of bytes to be dumped
- *      maxage (I)  int containing maxage, in seconds, for
- *              http header, or -1 to not emit headers
- *      valign (I)  int containing Vertical-Align:, in pixels,
- *              for http header, or <= -999 to not emit
- *      isbuffer (I)    1 if cachefile is buffer of bytes to be
- *              dumped
- * --------------------------------------------------------------------------
- * Returns: ( int )     #bytes dumped (0 signals error)
- * --------------------------------------------------------------------------
- * Notes:     o
- * ======================================================================= */
-/* --- entry point --- */
-int emitcache(char *cachefile, int maxage, int valign, int nbytes)
-{
-    /* ------------------------------------------------------------
-    Allocations and Declarations
-    ------------------------------------------------------------ */
-    /* emit cachefile to stdout */
-    FILE    *emitptr = stdout;
-    /* bytes from cachefile */
-    unsigned char buffer[MAXGIFSZ+1];
-    /* ptr to buffer */
-    unsigned char *buffptr = buffer;
-    /* true to emit Vertical-Align: */
-    int isvalign = (abs(valign) < 999 ? 1 : 0);
-    /* ------------------------------------------------------------
-    initialization
-    ------------------------------------------------------------ */
-    /* --- check that files opened okay --- */
-    if (emitptr == (FILE *)NULL)         /* failed to open emit file */
-        /* so return 0 bytes to caller */
-        goto end_of_job;
-    /* --- read the file if necessary --- */
-    if (nbytes > 0) {              /* cachefile is buffer */
-        /* so reset buffer pointer */
-        buffptr = (unsigned char *)cachefile;
-    }
-    else {                  /* cachefile is file name */
-        if ((nbytes = readcachefile(cachefile, buffer)) /* read the file */
-                < 1) goto end_of_job;
-    }      /* quit if file not read */
-    /* --- first emit http headers if requested --- */
-    if (isemitcontenttype            /* content-type lines enabled */
-            &&   maxage >= 0)           /* caller wants http headers */
-    {
-    /* --- emit mime content-type line --- */
-        fprintf(emitptr, "Cache-Control: max-age=%d\n", maxage);
-        fprintf(emitptr, "Content-Length: %d\n", nbytes);
-        if (isvalign)             /* Vertical-Align: header wanted */
-            fprintf(emitptr, "Vertical-Align: %d\n", valign);
-        fprintf(emitptr, "Content-type: image/gif\n\n");
-    }
-    /* ------------------------------------------------------------
-    set stdout to binary mode (for Windows)
-    ------------------------------------------------------------ */
-    /* emitptr = fdopen(STDOUT_FILENO,"wb"); */  /* doesn't work portably, */
-#ifdef WINDOWS              /* so instead... */
-#ifdef HAVE_SETMODE           /* prefer (non-portable) setmode() */
-    if (setmode(fileno(stdout), O_BINARY)     /* windows specific call */
-            /* handle error */
-            == -1) ;/* sets stdout to binary mode */
-#else
-/* setmode() not available */
-#if 1
-    /* freopen() stdout binary */
-    freopen("CON", "wb", stdout);
-#else
-    /* fdopen() stdout binary */
-    stdout = fdopen(STDOUT_FILENO, "wb");
-#endif
-#endif
-#endif
-    /* ------------------------------------------------------------
-    emit bytes from cachefile
-    ------------------------------------------------------------ */
-    /* --- write bytes to stdout --- */
-    if (fwrite(buffptr, sizeof(unsigned char), nbytes, emitptr) /* write buffer */
-            <    nbytes)                /* failed to write all bytes */
-        /* reset total count to 0 */
-        nbytes = 0;
-end_of_job:
-    /* back with #bytes emitted */
-    return (nbytes);
-} /* --- end-of-function emitcache() --- */
-
-
-/* ==========================================================================
- * Function:    readcachefile ( cachefile, buffer )
- * Purpose: read cachefile into buffer
- * --------------------------------------------------------------------------
- * Arguments:   cachefile (I)   pointer to null-terminated char string
- *              containing full path to file to be read
- *      buffer (O)  pointer to unsigned char string
- *              returning contents of cachefile
- *              (max 64000 bytes)
- * --------------------------------------------------------------------------
- * Returns: ( int )     #bytes read (0 signals error)
- * --------------------------------------------------------------------------
- * Notes:     o
- * ======================================================================= */
-/* --- entry point --- */
-int readcachefile(char *cachefile, unsigned char *buffer)
-{
-    /* ------------------------------------------------------------
-    Allocations and Declarations
-    ------------------------------------------------------------ */
-    /*open cachefile for binary read*/
-    FILE    *cacheptr = fopen(cachefile, "rb");
-    /* bytes from cachefile */
-    unsigned char cachebuff[64];
-    int buflen = 32,            /* #bytes we try to read from file */
-        nread = 0,          /* #bytes actually read from file */
-        maxbytes = MAXGIFSZ,        /* max #bytes returned in buffer */
-                                    /* total #bytes read */
-        nbytes = 0;
-    /* ------------------------------------------------------------
-    initialization
-    ------------------------------------------------------------ */
-    /* --- check that files opened okay --- */
-    /*failed to open cachefile*/
-    if (cacheptr == (FILE *)NULL) goto end_of_job;
-    /* --- check that output buffer provided --- */
-    /* no buffer */
-    if (buffer == (unsigned char *)NULL) goto end_of_job;
-    /* ------------------------------------------------------------
-    read bytes from cachefile
-    ------------------------------------------------------------ */
-    while (1) {
-        /* --- read bytes from cachefile --- */
-        /* read */
-        nread = fread(cachebuff, sizeof(unsigned char), buflen, cacheptr);
-        if (nbytes + nread > maxbytes)     /* block too big for buffer */
-            /* so truncate it */
-            nread = maxbytes - nbytes;
-        /* no bytes left in cachefile */
-        if (nread < 1) break;
-        /* --- store bytes in buffer --- */
-        /* copy current block to buffer */
-        memcpy(buffer + nbytes, cachebuff, nread);
-        /* --- ready to read next block --- */
-        /* bump total #bytes emitted */
-        nbytes += nread;
-        /* no bytes left in cachefile */
-        if (nread < buflen) break;
-        /* avoid buffer overflow */
-        if (nbytes >= maxbytes) break;
-    } /* --- end-of-while(1) --- */
-end_of_job:
-    /* close file if opened */
-    if (cacheptr != NULL) fclose(cacheptr);
-    /* back with #bytes emitted */
-    return (nbytes);
-} /* --- end-of-function readcachefile() --- */
-
 

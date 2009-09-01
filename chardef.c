@@ -21,6 +21,7 @@
  *
  ****************************************************************************/
 
+#include <ctype.h>
 #include <string.h>
 #include <stdlib.h>
 #include "mimetex_priv.h"
@@ -38,7 +39,7 @@
  * Notes:
  * ======================================================================= */
 /* --- entry point --- */
-chardef *new_chardef()
+chardef *new_chardef(mimetex_ctx *mctx)
 {
     /* ------------------------------------------------------------
     Allocations and Declarations
@@ -86,7 +87,7 @@ end_of_job:
  * Notes:
  * ======================================================================= */
 /* --- entry point --- */
-int delete_chardef(chardef *cp)
+int delete_chardef(mimetex_ctx *mctx, chardef *cp)
 {
     /* ------------------------------------------------------------
     free chardef struct
@@ -123,7 +124,7 @@ int delete_chardef(chardef *cp)
  *      shorter table matches, i.e., in this case \ep
  * ======================================================================= */
 /* --- entry point --- */
-mathchardef *get_symdef(char *symbol)
+mathchardef *get_symdef(mimetex_ctx *mctx, char *symbol)
 {
     /* ------------------------------------------------------------
     Allocations and Declarations
@@ -136,7 +137,7 @@ mathchardef *get_symdef(char *symbol)
         deflen, minlen = 9999; /*length of shortest matching symdef*/
     int alphasym = (symlen == 1 && isalpha(*symbol)); /*alphanumeric sym*/
     /* current font family */
-    int family = fontinfo[fontnum].family;
+    int family = fontinfo[mctx->fontnum].family;
     static  char *displaysyms[][2] = {  /*xlate to Big sym for \displaystyle*/
         /* --- see table on page 536 in TLC2 --- */
         {"\\int",   "\\Bigint"},
@@ -163,19 +164,19 @@ mathchardef *get_symdef(char *symbol)
     First check for ligature
     ------------------------------------------------------------ */
     /* init signal for no ligature */
-    isligature = 0;
+    mctx->isligature = 0;
     if (family == CYR10)             /*only check for cyrillic ligatures*/
-        if ((symdef = get_ligature(subexprptr, family))) {
+        if ((symdef = get_ligature(mctx, mctx->subexprptr, family))) {
             /* set bestdef for ligature */
             bestdef = symdef;
             /* signal we found a ligature */
-            isligature = 1;
+            mctx->isligature = 1;
             goto end_of_job;
         }          /* so just give it to caller */
     /* ------------------------------------------------------------
     If in \displaystyle mode, first xlate int to Bigint, etc.
     ------------------------------------------------------------ */
-    if (isdisplaystyle > 1) {
+    if (mctx->isdisplaystyle > 1) {
         /* we're in \displaystyle mode */
         for (idef = 0; ; idef++) {     /* lookup symbol in displaysyms */
             char *fromsym = displaysyms[idef][0]; /* look for this symbol */
@@ -184,10 +185,10 @@ mathchardef *get_symdef(char *symbol)
             if (fromsym == NULL)
                 break;
             if (!strcmp(symbol, fromsym)) {  /* found a match */
-                if (msglevel >= 99 && msgfp != NULL) { /* debugging output */
-                    fprintf(msgfp, "get_symdef> isdisplaystyle=%d, xlated %s to %s\n",
-                            isdisplaystyle, symbol, tosym);
-                    fflush(msgfp);
+                if (mctx->msglevel >= 99 && mctx->msgfp != NULL) { /* debugging output */
+                    fprintf(mctx->msgfp, "get_symdef> mctx->isdisplaystyle=%d, xlated %s to %s\n",
+                            mctx->isdisplaystyle, symbol, tosym);
+                    fflush(mctx->msgfp);
                 }
                 /* so look up tosym instead */
                 symbol = tosym;
@@ -206,8 +207,8 @@ mathchardef *get_symdef(char *symbol)
             /* check against caller's symbol */
             if (strncmp(symbol, symdef->symbol, symlen) == 0) {
                 /* found match */
-                if ((fontnum == 0 || family == CYR10)    /* mathmode, so check every match */
-                        || (0 && istextmode &&
+                if ((mctx->fontnum == 0 || family == CYR10)    /* mathmode, so check every match */
+                        || (0 && fontinfo[mctx->fontnum].istext == 1 &&
                                 (!alphasym  /* text mode and not alpha symbol */
                                  || symdef->handler != NULL)) /* or text mode and directive */
                         || (symdef->family == family /* have correct family */
@@ -227,26 +228,26 @@ mathchardef *get_symdef(char *symbol)
     }
     if (!bestdef) {
         /* failed to look up symbol */
-        if (fontnum != 0) {            /* we're in a restricted font mode */
+        if (mctx->fontnum != 0) {            /* we're in a restricted font mode */
             /* save current font family */
-            int oldfontnum = fontnum;
-            /* lookup result with fontnum=0 */
+            int oldfontnum = mctx->fontnum;
+            /* lookup result with mctx->fontnum=0 */
             mathchardef *symdef = NULL;
             /*try to look up symbol in any font*/
-            fontnum = 0;
-            /* repeat lookup with fontnum=0 */
-            symdef = get_symdef(symbol);
+            mctx->fontnum = 0;
+            /* repeat lookup with mctx->fontnum=0 */
+            symdef = get_symdef(mctx, symbol);
                 /* reset font family */
-            fontnum = oldfontnum;
+            mctx->fontnum = oldfontnum;
             return symdef;
-        }  /* caller gets fontnum=0 lookup */
+        }  /* caller gets mctx->fontnum=0 lookup */
     }
 end_of_job:
-    if (msgfp != NULL && msglevel >= 999) { /* debugging output */
-        fprintf(msgfp,
-            "get_symdef> symbol=%s is %smatched (isligature=%d)\n",
-            symbol, bestdef ? "": "not ", isligature);
-        fflush(msgfp);
+    if (mctx->msgfp != NULL && mctx->msglevel >= 999) { /* debugging output */
+        fprintf(mctx->msgfp,
+            "get_symdef> symbol=%s is %smatched (mctx->isligature=%d)\n",
+            symbol, bestdef ? "": "not ", mctx->isligature);
+        fflush(mctx->msgfp);
     }
     /*NULL or best symdef[]*/
     return bestdef;
@@ -267,7 +268,7 @@ end_of_job:
  * Notes:     o
  * ======================================================================= */
 /* --- entry point --- */
-mathchardef *get_ligature(char *expression, int family)
+mathchardef *get_ligature(mimetex_ctx *mctx, char *expression, int family)
 {
     /* ------------------------------------------------------------
     Allocations and Declarations
@@ -285,7 +286,7 @@ mathchardef *get_ligature(char *expression, int family)
     /* ------------------------------------------------------------
     search symdefs[] in order for first occurrence of symbol
     ------------------------------------------------------------ */
-    if (!isstring) {
+    if (!mctx->isstring) {
         for (idef = 0; symtables[idef].table; idef++) {
             /* skip handler tables */
             if (symtables[idef].family == NOVALUE)
@@ -312,14 +313,14 @@ mathchardef *get_ligature(char *expression, int family)
                 } /* --- end-of-if/else(symbol==NULL) --- */
             }
         }
-        if (msgfp != NULL && msglevel >= 999) { /* debugging output */
+        if (mctx->msgfp != NULL && mctx->msglevel >= 999) { /* debugging output */
             if (bestdef)
-                fprintf(msgfp, "get_ligature> ligature=%.4s is matched to symbol %s\n", ligature, bestdef->symbol);
+                fprintf(mctx->msgfp, "get_ligature> ligature=%.4s is matched to symbol %s\n", ligature, bestdef->symbol);
             else
-                fprintf(msgfp, "get_ligature> ligature=%.4s is not matched to any symbol\n", ligature);
-            fflush(msgfp);
+                fprintf(mctx->msgfp, "get_ligature> ligature=%.4s is not matched to any symbol\n", ligature);
+            fflush(mctx->msgfp);
         }
-    } /* --- end-of-if(!isstring) --- */
+    } /* --- end-of-if(!mctx->isstring) --- */
     /* -9999 or index of best symdef[] */
     return bestdef;
 } /* --- end-of-function get_ligature --- */
@@ -340,13 +341,13 @@ mathchardef *get_ligature(char *expression, int family)
  *      is returned instead.
  * ======================================================================= */
 /* --- entry point --- */
-chardef *get_chardef(mathchardef *symdef, int size)
+chardef *get_chardef(mimetex_ctx *mctx, mathchardef *symdef, int size)
 {
     /* ------------------------------------------------------------
     Allocations and Declarations
     ------------------------------------------------------------ */
     /* table of font families */
-    fontfamily  *fonts = fonttable;
+    fontfamily  *fonts = mctx->fonttable;
     chardef **fontdef,          /*tables for desired font, by size*/
     /* chardef for symdef,size */
     *gfdata = (chardef *)NULL;
@@ -401,10 +402,10 @@ chardef *get_chardef(mathchardef *symdef, int size)
     /* --- look up font family --- */
     for (ifont = 0; ; ifont++)       /* until trailer record found */
         if (fonts[ifont].family < 0) {     /* error, no such family */
-            if (msgfp != NULL && msglevel >= 99) { /* emit error */
-                fprintf(msgfp, "get_chardef> failed to find font family %d\n",
+            if (mctx->msgfp != NULL && mctx->msglevel >= 99) { /* emit error */
+                fprintf(mctx->msgfp, "get_chardef> failed to find font family %d\n",
                         family);
-                fflush(msgfp);
+                fflush(mctx->msgfp);
             }
             goto end_of_job;
         }          /* quit if can't find font family*/
@@ -425,10 +426,10 @@ chardef *get_chardef(mathchardef *symdef, int size)
         /* adjust size closer to normal */
         if (size == NORMALSIZE       /* already normal so no more sizes,*/
                 || sizeinc == 0) {          /* or must be supersampling */
-            if (msgfp != NULL && msglevel >= 99) { /* emit error */
-                fprintf(msgfp, "get_chardef> failed to find font size %d\n",
+            if (mctx->msgfp != NULL && mctx->msglevel >= 99) { /* emit error */
+                fprintf(mctx->msgfp, "get_chardef> failed to find font size %d\n",
                         size);
-                fflush(msgfp);
+                fflush(mctx->msgfp);
             }
             /* quit if can't find desired size */
             goto end_of_job;
@@ -454,12 +455,12 @@ chardef *get_chardef(mathchardef *symdef, int size)
     return subraster containing chardef data for symbol in requested size
     ------------------------------------------------------------ */
 end_of_job:
-    if (msgfp != NULL && msglevel >= 999) {
-        if (symdef == NULL) fprintf(msgfp, "get_chardef> input symdef==NULL\n");
+    if (mctx->msgfp != NULL && mctx->msglevel >= 999) {
+        if (symdef == NULL) fprintf(mctx->msgfp, "get_chardef> input symdef==NULL\n");
         else
-            fprintf(msgfp, "get_chardef> requested symbol=\"%s\" size=%d  %s\n",
+            fprintf(mctx->msgfp, "get_chardef> requested symbol=\"%s\" size=%d  %s\n",
                     symdef->symbol, size, (gfdata == NULL ? "FAILED" : "Succeeded"));
-        fflush(msgfp);
+        fflush(mctx->msgfp);
     }
     /*ptr to chardef for symbol in size*/
     return (gfdata);
@@ -482,7 +483,7 @@ end_of_job:
  *      and everything else descends below the baseline.
  * ======================================================================= */
 /* --- entry point --- */
-int get_baseline(chardef *gfdata)
+int get_baseline(mimetex_ctx *mctx, chardef *gfdata)
 {
     /* ------------------------------------------------------------
     Allocations and Declarations
@@ -516,27 +517,23 @@ int get_baseline(chardef *gfdata)
  * Notes:     o just wraps a subraster envelope around get_chardef()
  * ======================================================================= */
 /* --- entry point --- */
-subraster *get_charsubraster(mathchardef *symdef, int size)
+subraster *get_charsubraster(mimetex_ctx *mctx, mathchardef *symdef, int size)
 {
     /* ------------------------------------------------------------
     Allocations and Declarations
     ------------------------------------------------------------ */
     /* chardef struct for symdef,size */
-    chardef *get_chardef(), *gfdata = NULL;
-    /* baseline of gfdata */
-    int get_baseline();
+    chardef *gfdata = NULL;
     /* subraster containing gfdata */
-    subraster *new_subraster(), *sp = NULL;
+    subraster *sp = NULL;
     /* convert .gf-format to bitmap */
-    raster  *bitmaprp = NULL, *gftobitmap();
-    /* in case gftobitmap() fails */
-    int delete_subraster();
+    raster  *bitmaprp = NULL;
     /* ------------------------------------------------------------
     look up chardef for symdef at size, and embed data (gfdata) in subraster
     ------------------------------------------------------------ */
-    if ((gfdata = get_chardef(symdef, size)) /* look up chardef for symdef,size */
+    if ((gfdata = get_chardef(mctx, symdef, size)) /* look up chardef for symdef,size */
             !=   NULL)              /* and check that we found it */
-        if ((sp = new_subraster(0, 0, 0))   /* allocate subraster "envelope" */
+        if ((sp = new_subraster(mctx, 0, 0, 0))   /* allocate subraster "envelope" */
                 !=   NULL) {               /* and check that we succeeded */
             /* ptr to chardef's bitmap or .gf */
             raster *image = &(gfdata->image);
@@ -547,7 +544,7 @@ subraster *get_charsubraster(mathchardef *symdef, int size)
             /*replace default with caller's size*/
             sp->size = size;
             /* get baseline of character */
-            sp->baseline = get_baseline(gfdata);
+            sp->baseline = get_baseline(mctx, gfdata);
             if (format == 1) {         /* already a bitmap */
                 /* static char raster */
                 sp->type = CHARASTER;
@@ -555,7 +552,7 @@ subraster *get_charsubraster(mathchardef *symdef, int size)
                 sp->image = image;
             } else {
                 /* need to convert .gf-to-bitmap */
-                if ((bitmaprp = gftobitmap(image))    /* convert */
+                if ((bitmaprp = gftobitmap(mctx, image))    /* convert */
                         != (raster *)NULL) {         /* successful */
                     /* allocated raster will be freed */
                     sp->type = IMAGERASTER;
@@ -563,7 +560,7 @@ subraster *get_charsubraster(mathchardef *symdef, int size)
                 }       /* store ptr to converted bitmap */
                 else {               /* conversion failed */
                     /* free unneeded subraster */
-                    delete_subraster(sp);
+                    delete_subraster(mctx, sp);
                     /* signal error to caller */
                     sp = (subraster *)NULL;
                     goto end_of_job;
@@ -571,11 +568,11 @@ subraster *get_charsubraster(mathchardef *symdef, int size)
             }
         } /* --- end-of-if(sp!=NULL) --- */
 end_of_job:
-    if (msgfp != NULL && msglevel >= 999) {
-        fprintf(msgfp, "get_charsubraster> requested symbol=\"%s\" baseline=%d"
+    if (mctx->msgfp != NULL && mctx->msglevel >= 999) {
+        fprintf(mctx->msgfp, "get_charsubraster> requested symbol=\"%s\" baseline=%d"
                 " %s %s\n", symdef->symbol, (sp == NULL ? 0 : sp->baseline),
                 (sp == NULL ? "FAILED" : "Succeeded"), (gfdata == NULL ? "(gfdata=NULL)" : " "));
-        fflush(msgfp);
+        fflush(mctx->msgfp);
     }
     /* back to caller */
     return (sp);
@@ -597,27 +594,27 @@ end_of_job:
  * Notes:     o just combines get_symdef() and get_charsubraster()
  * ======================================================================= */
 /* --- entry point --- */
-subraster *get_symsubraster(char *symbol, int size)
+subraster *get_symsubraster(mimetex_ctx *mctx, char *symbol, int size)
 {
     /* ------------------------------------------------------------
     Allocations and Declarations
     ------------------------------------------------------------ */
     /* subraster containing gfdata */
-    subraster *sp = NULL, *get_charsubraster();
+    subraster *sp = NULL;
     /* mathchardef lookup for symbol */
-    mathchardef *symdef = NULL, *get_symdef();
+    mathchardef *symdef = NULL;
     /* ------------------------------------------------------------
     look up mathchardef for symbol
     ------------------------------------------------------------ */
     if (symbol != NULL)              /* user supplied input symbol */
         /*look up corresponding mathchardef*/
-        symdef = get_symdef(symbol);
+        symdef = get_symdef(mctx, symbol);
     /* ------------------------------------------------------------
     look up chardef for mathchardef and wrap a subraster structure around data
     ------------------------------------------------------------ */
     if (symdef != NULL)              /* lookup succeeded */
         /* so get symbol data in subraster */
-        sp = get_charsubraster(symdef, size);
+        sp = get_charsubraster(mctx, symdef, size);
     /* back to caller with sp or NULL */
     return (sp);
 } /* --- end-of-function get_symsubraster() --- */
@@ -645,7 +642,7 @@ subraster *get_symsubraster(char *symbol, int size)
  *      but the best-fit width is searched for (rather than height)
  * ======================================================================= */
 /* --- entry point --- */
-subraster *get_delim(char *symbol, int height, int family)
+subraster *get_delim(mimetex_ctx *mctx, char *symbol, int height, int family)
 {
     /* ------------------------------------------------------------
     Allocations and Declarations
@@ -653,11 +650,9 @@ subraster *get_delim(char *symbol, int height, int family)
     /* table of mathchardefs */
     mathchardef *bestdef = NULL, *bigdef = NULL;
     /* best match char */
-    subraster *get_charsubraster(), *sp = (subraster *)NULL;
-    /* construct delim if can't find it*/
-    subraster *make_delim();
+    subraster *sp = (subraster *)NULL;
     /* get chardef struct for a symdef */
-    chardef *get_chardef(), *gfdata = NULL;
+    chardef *gfdata = NULL;
     char    lcsymbol[256], *symptr,     /* lowercase symbol for comparison */
     /* unescaped symbol */
     *unescsymbol = symbol;
@@ -751,14 +746,14 @@ subraster *get_delim(char *symbol, int height, int family)
                                 (symptr == lcsymbol       /* caller's sym is a prefix */
                                  || symptr == lcsymbol + deflen - symlen))) /* or a suffix */ {
                             for (size = 0; size <= LARGESTSIZE; size++) /* check all font sizes */ {
-                                if ((gfdata = get_chardef(symdef, size)) != NULL) { /*got one*/
+                                if ((gfdata = get_chardef(mctx, symdef, size)) != NULL) { /*got one*/
                                     /* height of this character */
                                     defheight = gfdata->image.height;
                                     if (iswidth)         /* width search wanted instead... */
                                         /* ...so substitute width */
                                         defheight = gfdata->image.width;
                                     /* set symbol class, etc */
-                                    leftsymdef = symdef;
+                                    mctx->leftsymdef = symdef;
                                     if (defheight >= height && defheight < bestheight) { /*new best fit*/
                                         bestdef = symdef;
                                         /* save indexes of best fit */
@@ -784,16 +779,16 @@ subraster *get_delim(char *symbol, int height, int family)
     ------------------------------------------------------------ */
     if (bestdef)            /* found a best fit for caller */
         /* best subraster */
-        sp = get_charsubraster(bestdef, bestsize);
+        sp = get_charsubraster(mctx, bestdef, bestsize);
     if ((sp == NULL && height - bigheight > 5)    /* try to construct delim */
             ||   !bigdef)            /* delim not in font tables */
         /* try to build delim */
-        sp = make_delim(symbol, (iswidth ? -height : height));
+        sp = make_delim(mctx, symbol, (iswidth ? -height : height));
     if (sp == NULL && bigdef)   /* just give biggest to caller */
         /* biggest subraster */
-        sp = get_charsubraster(bigdef, bigsize);
-    if (msgfp != NULL && msglevel >= 99)
-        fprintf(msgfp, "get_delim> symbol=%.50s, height=%d family=%d isokay=%s\n",
+        sp = get_charsubraster(mctx, bigdef, bigsize);
+    if (mctx->msgfp != NULL && mctx->msglevel >= 99)
+        fprintf(mctx->msgfp, "get_delim> symbol=%.50s, height=%d family=%d isokay=%s\n",
                 (symbol == NULL ? "null" : symbol), height, family, (sp == NULL ? "fail" : "success"));
     return (sp);
 } /* --- end-of-function get_delim() --- */
@@ -815,28 +810,20 @@ subraster *get_delim(char *symbol, int height, int family)
  *      and interpreted as width (rather than height)
  * ======================================================================= */
 /* --- entry point --- */
-subraster *make_delim(char *symbol, int height)
+subraster *make_delim(mimetex_ctx *mctx, char *symbol, int height)
 {
     /* ------------------------------------------------------------
     Allocations and Declarations
     ------------------------------------------------------------ */
-    subraster *new_subraster();
-    subraster *get_symsubraster();
-    int circle_raster();
-    int rule_rsater();
-    int line_raster();
-    subraster *uparrow_subraster();
-
     subraster *sp = NULL;  /* subraster returned to caller */
     subraster *symtop = NULL, *symbot = NULL, *symmid = NULL, *symbar = NULL, /* pieces */
-              *topsym = NULL, *botsym = NULL, *midsym = NULL, *barsym = NULL, /* +filler */
-              *rastack(), *rastcat(); /* stack pieces, concat filler */
+              *topsym = NULL, *botsym = NULL, *midsym = NULL, *barsym = NULL; /* +filler */
     /*1=draw paren, 0=build from pieces*/
     int isdrawparen = 0;
     /* sp->image */
     raster  *rasp = (raster *)NULL;
     /* set true if delimiter drawn ok */
-    int isokay = 0, delete_subraster();
+    int isokay = 0;
     int pixsz = 1,          /* pixels are one bit each */
                 /* size arg for get_symsubraster() */
                 symsize = 0;
@@ -851,8 +838,8 @@ subraster *make_delim(char *symbol, int height)
          *lp4 = NULL, *rp4 = NULL; /* synonym for lp,rp */
     /*pre-alloc subraster, except arrow*/
     int isprealloc = 1;
-    int oldsmashmargin = smashmargin,   /* save original smashmargin */
-        wasnocatspace = isnocatspace; /* save original isnocatspace */
+    int oldsmashmargin = mctx->smashmargin,   /* save original mctx->smashmargin */
+        wasnocatspace = mctx->isnocatspace; /* save original mctx->isnocatspace */
     /* ------------------------------------------------------------
     initialization
     ------------------------------------------------------------ */
@@ -896,7 +883,7 @@ subraster *make_delim(char *symbol, int height)
     }
     /* --- allocate and initialize subraster for constructed delimiter --- */
     if (isprealloc) {            /* pre-allocation wanted */
-        if ((sp = new_subraster(width, height, pixsz)) /* allocate new subraster */
+        if ((sp = new_subraster(mctx, width, height, pixsz)) /* allocate new subraster */
                 /* quit if failed */
                 ==   NULL)  goto end_of_job;
         /* --- initialize delimiter subraster parameters --- */
@@ -918,7 +905,7 @@ subraster *make_delim(char *symbol, int height)
         if (isdrawparen) {             /* draw the paren */
             /* max width for ()'s */
             int  mywidth = min2(width, 20);
-            circle_raster(rasp,
+            circle_raster(mctx, rasp,
             /* embedded raster image */
                           0, 0,               /* row0,col0 are upper-left corner */
                           height - 1, mywidth - 1,    /* row1,col1 are lower-right */
@@ -944,9 +931,9 @@ subraster *make_delim(char *symbol, int height)
                 /* --- get pieces at current test size --- */
                 /* check for all pieces */
                 isokay = 1;
-                if ((symtop = get_symsubraster(parentop, symsize)) == NULL) isokay = 0;
-                if ((symbot = get_symsubraster(parenbot, symsize)) == NULL) isokay = 0;
-                if ((symbar = get_symsubraster(parenbar, symsize)) == NULL) isokay = 0;
+                if ((symtop = get_symsubraster(mctx, parentop, symsize)) == NULL) isokay = 0;
+                if ((symbot = get_symsubraster(mctx, parenbot, symsize)) == NULL) isokay = 0;
+                if ((symbar = get_symsubraster(mctx, parenbar, symsize)) == NULL) isokay = 0;
                 /* --- check sum of pieces against total desired height --- */
                 if (isokay) {            /* all pieces retrieved */
                     /*top+bot*/
@@ -960,11 +947,11 @@ subraster *make_delim(char *symbol, int height)
                 } /* --- end-of-if(isokay) --- */
                 /* --- free test pieces that were too big --- */
                 /* free top */
-                if (symtop != NULL) delete_subraster(symtop);
+                if (symtop != NULL) delete_subraster(mctx, symtop);
                 /* free bot */
-                if (symbot != NULL) delete_subraster(symbot);
+                if (symbot != NULL) delete_subraster(mctx, symbot);
                 /* free bar */
-                if (symbar != NULL) delete_subraster(symbar);
+                if (symbar != NULL) delete_subraster(mctx, symbar);
                 /* nothing available */
                 isokay = 0;
                 /* leave isokay=0 after smallest */
@@ -973,16 +960,16 @@ subraster *make_delim(char *symbol, int height)
             /* --- construct brace from pieces --- */
             if (isokay) {             /* we have the pieces */
                 /* --- add alignment fillers --- */
-                smashmargin = 0;
+                mctx->smashmargin = 0;
                 /*turn off rastcat smashing,space*/
-                isnocatspace = 99;
-                topsym = (topfill > 0 ? rastcat(new_subraster(topfill, 1, 1), symtop, 3) : symtop);
-                botsym = (botfill > 0 ? rastcat(new_subraster(botfill, 1, 1), symbot, 3) : symbot);
-                barsym = (barfill > 0 ? rastcat(new_subraster(barfill, 1, 1), symbar, 3) : symbar);
-                /* reset smashmargin */
-                smashmargin = oldsmashmargin;
-                /* reset isnocatspace */
-                isnocatspace = wasnocatspace;
+                mctx->isnocatspace = 99;
+                topsym = (topfill > 0 ? rastcat(mctx, new_subraster(mctx, topfill, 1, 1), symtop, 3) : symtop);
+                botsym = (botfill > 0 ? rastcat(mctx, new_subraster(mctx, botfill, 1, 1), symbot, 3) : symbot);
+                barsym = (barfill > 0 ? rastcat(mctx, new_subraster(mctx, barfill, 1, 1), symbar, 3) : symbar);
+                /* reset mctx->smashmargin */
+                mctx->smashmargin = oldsmashmargin;
+                /* reset mctx->isnocatspace */
+                mctx->isnocatspace = wasnocatspace;
                 /* --- #bars needed between top and bot --- */
                 /* #bars needed */
                 nbars = (barht < 1 ? 0 : max2(0, 1 + (height - baseht) / barht));
@@ -990,11 +977,12 @@ subraster *make_delim(char *symbol, int height)
                 /* start with top piece */
                 sp = topsym;
                 if (nbars > 0)           /* need nbars between top and bot */
-                    for (ibar = 1; ibar <= nbars; ibar++) sp = rastack(barsym, sp, 1, 0, 0, 2);
+                    for (ibar = 1; ibar <= nbars; ibar++)
+                        sp = rastack(mctx, barsym, sp, 1, 0, 0, 2);
                 /* bottom below bars or middle */
-                sp = rastack(botsym, sp, 1, 0, 0, 3);
+                sp = rastack(mctx, botsym, sp, 1, 0, 0, 3);
                 /* barsym no longer needed */
-                delete_subraster(barsym);
+                delete_subraster(mctx, barsym);
             } /* --- end-of-if(isokay) --- */
         } /* --- end-of-if/else(isdrawparen) --- */
     } /* --- end-of-if(left- or right-() paren wanted) --- */
@@ -1019,10 +1007,10 @@ subraster *make_delim(char *symbol, int height)
             /* --- get pieces at current test size --- */
             /* check for all pieces */
             isokay = 1;
-            if ((symtop = get_symsubraster(bracetop, symsize)) == NULL) isokay = 0;
-            if ((symbot = get_symsubraster(bracebot, symsize)) == NULL) isokay = 0;
-            if ((symmid = get_symsubraster(bracemid, symsize)) == NULL) isokay = 0;
-            if ((symbar = get_symsubraster(bracebar, symsize)) == NULL) isokay = 0;
+            if ((symtop = get_symsubraster(mctx, bracetop, symsize)) == NULL) isokay = 0;
+            if ((symbot = get_symsubraster(mctx, bracebot, symsize)) == NULL) isokay = 0;
+            if ((symmid = get_symsubraster(mctx, bracemid, symsize)) == NULL) isokay = 0;
+            if ((symbar = get_symsubraster(mctx, bracebar, symsize)) == NULL) isokay = 0;
             /* --- check sum of pieces against total desired height --- */
             if (isokay) {            /* all pieces retrieved */
                 baseht = (symtop->image)->height + (symbot->image)->height
@@ -1037,13 +1025,13 @@ subraster *make_delim(char *symbol, int height)
             } /* --- end-of-if(isokay) --- */
             /* --- free test pieces that were too big --- */
             /* free top */
-            if (symtop != NULL) delete_subraster(symtop);
+            if (symtop != NULL) delete_subraster(mctx, symtop);
             /* free bot */
-            if (symbot != NULL) delete_subraster(symbot);
+            if (symbot != NULL) delete_subraster(mctx, symbot);
             /* free mid */
-            if (symmid != NULL) delete_subraster(symmid);
+            if (symmid != NULL) delete_subraster(mctx, symmid);
             /* free bar */
-            if (symbar != NULL) delete_subraster(symbar);
+            if (symbar != NULL) delete_subraster(mctx, symbar);
             /* nothing available */
             isokay = 0;
             /* leave isokay=0 after smallest */
@@ -1052,17 +1040,17 @@ subraster *make_delim(char *symbol, int height)
         /* --- construct brace from pieces --- */
         if (isokay) {              /* we have the pieces */
             /* --- add alignment fillers --- */
-            smashmargin = 0;
+            mctx->smashmargin = 0;
             /*turn off rastcat smashing,space*/
-            isnocatspace = 99;
-            topsym = (topfill > 0 ? rastcat(new_subraster(topfill, 1, 1), symtop, 3) : symtop);
-            botsym = (botfill > 0 ? rastcat(new_subraster(botfill, 1, 1), symbot, 3) : symbot);
-            midsym = (midfill > 0 ? rastcat(new_subraster(midfill, 1, 1), symmid, 3) : symmid);
-            barsym = (barfill > 0 ? rastcat(new_subraster(barfill, 1, 1), symbar, 3) : symbar);
-            /* reset smashmargin */
-            smashmargin = oldsmashmargin;
-            /* reset isnocatspace */
-            isnocatspace = wasnocatspace;
+            mctx->isnocatspace = 99;
+            topsym = (topfill > 0 ? rastcat(mctx, new_subraster(mctx, topfill, 1, 1), symtop, 3) : symtop);
+            botsym = (botfill > 0 ? rastcat(mctx, new_subraster(mctx, botfill, 1, 1), symbot, 3) : symbot);
+            midsym = (midfill > 0 ? rastcat(mctx, new_subraster(mctx, midfill, 1, 1), symmid, 3) : symmid);
+            barsym = (barfill > 0 ? rastcat(mctx, new_subraster(mctx, barfill, 1, 1), symbar, 3) : symbar);
+            /* reset mctx->smashmargin */
+            mctx->smashmargin = oldsmashmargin;
+            /* reset mctx->isnocatspace */
+            mctx->isnocatspace = wasnocatspace;
             /* --- #bars needed on each side of mid piece --- */
             /*#bars per side*/
             nbars = (barht < 1 ? 0 : max2(0, 1 + (height - baseht) / barht / 2));
@@ -1070,15 +1058,15 @@ subraster *make_delim(char *symbol, int height)
             /* start with top piece */
             sp = topsym;
             if (nbars > 0)           /* need nbars above middle */
-                for (ibar = 1; ibar <= nbars; ibar++) sp = rastack(barsym, sp, 1, 0, 0, 2);
+                for (ibar = 1; ibar <= nbars; ibar++) sp = rastack(mctx, barsym, sp, 1, 0, 0, 2);
             /*mid after top or bars*/
-            sp = rastack(midsym, sp, 1, 0, 0, 3);
+            sp = rastack(mctx, midsym, sp, 1, 0, 0, 3);
             if (nbars > 0)           /* need nbars below middle */
-                for (ibar = 1; ibar <= nbars; ibar++) sp = rastack(barsym, sp, 1, 0, 0, 2);
+                for (ibar = 1; ibar <= nbars; ibar++) sp = rastack(mctx, barsym, sp, 1, 0, 0, 2);
             /* bottom below bars or middle */
-            sp = rastack(botsym, sp, 1, 0, 0, 3);
+            sp = rastack(mctx, botsym, sp, 1, 0, 0, 3);
             /* barsym no longer needed */
-            delete_subraster(barsym);
+            delete_subraster(mctx, barsym);
         } /* --- end-of-if(isokay) --- */
     } /* --- end-of-if(left- or right-{} brace wanted) --- */
     /* ------------------------------------------------------------
@@ -1102,22 +1090,22 @@ subraster *make_delim(char *symbol, int height)
             wthick = thickness;         /* same thickness for top/bot bar */
         if (lp3 == NULL && rp3 == NULL)    /* set top bar if floor not wanted */
             /* top horizontal bar */
-            rule_raster(rasp, 0, 0, mywidth, wthick, 0);
+            rule_raster(mctx, rasp, 0, 0, mywidth, wthick, 0);
         if (lp2 == NULL && rp2 == NULL)    /* set bot bar if ceil not wanted */
             /* bottom */
-            rule_raster(rasp, height - wthick, 0, mywidth, thickness, 0);
+            rule_raster(mctx, rasp, height - wthick, 0, mywidth, thickness, 0);
         if (lp != NULL || lp2 != NULL || lp3 != NULL || lp4 != NULL) /* left bracket */
             /* left vertical bar */
-            rule_raster(rasp, 0, 0, thickness, height, 0);
+            rule_raster(mctx, rasp, 0, 0, thickness, height, 0);
         if (lp4 != NULL)           /* 2nd left vertical bar needed */
             /* 2nd left vertical bar */
-            rule_raster(rasp, 0, thickness + 1, 1, height, 0);
+            rule_raster(mctx, rasp, 0, thickness + 1, 1, height, 0);
         if (rp != NULL || rp2 != NULL || rp3 != NULL || rp4 != NULL) /* right bracket */
             /* right */
-            rule_raster(rasp, 0, mywidth - thickness, thickness, height, 0);
+            rule_raster(mctx, rasp, 0, mywidth - thickness, thickness, height, 0);
         if (rp4 != NULL)           /* 2nd right vertical bar needed */
             /*2nd right vert*/
-            rule_raster(rasp, 0, mywidth - thickness - 2, 1, height, 0);
+            rule_raster(mctx, rasp, 0, mywidth - thickness - 2, 1, height, 0);
         /* set flag */
         isokay = 1;
     } /* --- end-of-if(left- or right-[] bracket wanted) --- */
@@ -1133,20 +1121,20 @@ subraster *make_delim(char *symbol, int height)
         /* set line pixel thickness */
         thickness = (height < 25 ? 1 : 2);
         if (lp != NULL) {          /* left < bracket wanted */
-            line_raster(rasp, height / 2, 0, 0, mywidth - 1, mythick);
+            line_raster(mctx, rasp, height / 2, 0, 0, mywidth - 1, mythick);
             if (thickness > 1)
-                line_raster(rasp, height / 2, 1, 0, mywidth - 1, mythick);
-            line_raster(rasp, height / 2, 0, height - 1, mywidth - 1, mythick);
+                line_raster(mctx, rasp, height / 2, 1, 0, mywidth - 1, mythick);
+            line_raster(mctx, rasp, height / 2, 0, height - 1, mywidth - 1, mythick);
             if (thickness > 1)
-                line_raster(rasp, height / 2, 1, height - 1, mywidth - 1, mythick);
+                line_raster(mctx, rasp, height / 2, 1, height - 1, mywidth - 1, mythick);
         }
         if (rp != NULL) {          /* right > bracket wanted */
-            line_raster(rasp, height / 2, mywidth - 1, 0, 0, mythick);
+            line_raster(mctx, rasp, height / 2, mywidth - 1, 0, 0, mythick);
             if (thickness > 1)
-                line_raster(rasp, height / 2, mywidth - 2, 0, 0, mythick);
-            line_raster(rasp, height / 2, mywidth - 1, height - 1, 0, mythick);
+                line_raster(mctx, rasp, height / 2, mywidth - 2, 0, 0, mythick);
+            line_raster(mctx, rasp, height / 2, mywidth - 1, height - 1, 0, mythick);
             if (thickness > 1)
-                line_raster(rasp, height / 2, mywidth - 2, height - 1, 0, mythick);
+                line_raster(mctx, rasp, height / 2, mywidth - 2, height - 1, 0, mythick);
         }
         /* set flag */
         isokay = 1;
@@ -1162,9 +1150,9 @@ subraster *make_delim(char *symbol, int height)
         /* set line pixel thickness */
         thickness = 1;
         if (lp != NULL)            /* left / wanted */
-            line_raster(rasp, 0, mywidth - 1, height - 1, 0, thickness);
+            line_raster(mctx, rasp, 0, mywidth - 1, height - 1, 0, thickness);
         if (rp != NULL || rp2 != NULL)     /* right \ wanted */
-            line_raster(rasp, 0, 0, height - 1, mywidth - 1, thickness);
+            line_raster(mctx, rasp, 0, 0, height - 1, mywidth - 1, thickness);
         /* set flag */
         isokay = 1;
     } /* --- end-of-if(left- or right-/\ delimiter wanted) --- */
@@ -1187,7 +1175,7 @@ subraster *make_delim(char *symbol, int height)
                     ||   strstr(symbol, "Up") != NULL) /* and down or Down */
                 drctn = 0;
         }          /* reset direction to updown */
-        sp = uparrow_subraster(mywidth, height, pixsz, drctn, isBig);
+        sp = uparrow_subraster(mctx, mywidth, height, pixsz, drctn, isBig);
         if (sp != NULL) {
             /* image */
             sp->type = IMAGERASTER;
@@ -1215,14 +1203,14 @@ subraster *make_delim(char *symbol, int height)
             /* each | of || 1 or 2 pixels thick*/
             thickness = (height < 75 ? 1 : 2);
             /* left */
-            rule_raster(rasp, 0, max2(0, midcol - 2), thickness, height, 0);
-            rule_raster(rasp, 0, min2(width, midcol + 2), thickness, height, 0);
+            rule_raster(mctx, rasp, 0, max2(0, midcol - 2), thickness, height, 0);
+            rule_raster(mctx, rasp, 0, min2(width, midcol + 2), thickness, height, 0);
         } else                 /*nb, lp2 spuriously set if rp2 set*/
             if (lp  != NULL           /* left or right | bracket wanted */
                     ||   lp2 != NULL) {          /* ditto for synomym */
                 /* set | 1 or 2 pixels thick */
                 thickness = (height < 75 ? 1 : 2);
-                rule_raster(rasp, 0, midcol, thickness, height, 0);
+                rule_raster(mctx, rasp, 0, midcol, thickness, height, 0);
             } /*mid vertical bar*/
         /* set flag */
         isokay = 1;
@@ -1231,12 +1219,12 @@ subraster *make_delim(char *symbol, int height)
     back to caller
     ------------------------------------------------------------ */
 end_of_job:
-    if (msgfp != NULL && msglevel >= 99)
-        fprintf(msgfp, "make_delim> symbol=%.50s, isokay=%d\n",
+    if (mctx->msgfp != NULL && mctx->msglevel >= 99)
+        fprintf(mctx->msgfp, "make_delim> symbol=%.50s, isokay=%d\n",
                 (symbol == NULL ? "null" : symbol), isokay);
     if (!isokay) {         /* don't have requested delimiter */
         /* so free unneeded structure */
-        if (sp != NULL) delete_subraster(sp);
+        if (sp != NULL) delete_subraster(mctx, sp);
         sp = NULL;
     }          /* and signal error to caller */
     /*back to caller with delim or NULL*/

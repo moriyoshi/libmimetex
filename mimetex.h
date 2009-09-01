@@ -115,7 +115,7 @@ typedef struct raster_struct
 some char classes tokenizer needs to recognize, and macros to check for them
 -------------------------------------------------------------------------- */
 /* --- some character classes --- */
-#define istextmode  (fontinfo[fontnum].istext==1) /* true for text font*/
+#define istextmode  (fontinfo[mctx->fontnum].istext==1) /* true for text font*/
 #define WHITEMATH   "~ \t\n\r\f\v"  /* white chars in display/math mode*/
 #define WHITETEXT   "\t\n\r\f\v"    /* white chars in text mode */
 #define WHITEDELIM  "~ "        /*always ignored following \sequence*/
@@ -157,11 +157,13 @@ typedef struct chardef_struct
     raster  image;            /* bitmap image of character */
 } chardef; /* --- end-of-chardef_struct --- */
 
+typedef struct mimetex_ctx_struct mimetex_ctx;
+typedef struct subraster_struct subraster;
 
 /* -------------------------------------------------------------------------
 Font info corresponding to TeX \matchardef, see TeXbook Appendix F (page 431)
 -------------------------------------------------------------------------- */
-typedef void *((*HANDLER)());       /* ptr to function returning void* */
+typedef subraster *(*HANDLER)(mimetex_ctx *mctx, char **expression, int size, subraster *basesp, int arg1, int arg2, int arg3);       /* ptr to function returning void* */
 typedef struct mathchardef_struct {
     /* -----------------------------------------------------------------------
     symbol name ("a", "\alpha", "1", etc)
@@ -252,7 +254,7 @@ aspect ratio is width/height of the displayed image of a pixel
 /* -------------------------------------------------------------------------
 subraster (bitmap image, its attributes, overlaid position in raster, etc)
 -------------------------------------------------------------------------- */
-typedef struct subraster_struct /* "typedef" for subraster_struct*/
+struct subraster_struct /* "typedef" for subraster_struct*/
 {
     /* --- subraster type --- */
     int   type;               /* charcter or image raster */
@@ -264,7 +266,7 @@ typedef struct subraster_struct /* "typedef" for subraster_struct*/
     int   toprow, leftcol;        /* upper-left corner of subraster */
     /* --- pointer to raster bitmap image of subraster --- */
     raster *image;            /*ptr to bitmap image of subraster*/
-} subraster; /* --- end-of-subraster_struct --- */
+}; /* --- end-of-subraster_struct --- */
 
 /* --- subraster types --- */
 #define CHARASTER   (1)     /* character */
@@ -273,10 +275,6 @@ typedef struct subraster_struct /* "typedef" for subraster_struct*/
 #define FRACRASTER  (4)     /* image of \frac{}{} */
 #define ASCIISTRING (5)     /* ascii string (not a raster) */
 
-/* ---
- * issue rasterize() call end extract embedded raster from returned subraster
- * -------------------------------------------------------------------------- */
-subraster *rasterize();         /* declare rasterize */
 #define make_raster(expression,size)    ((rasterize(expression,size))->image)
 
 
@@ -327,75 +325,137 @@ typedef struct fontfamily_struct /* typedef for fontfamily */
 #define DBGLEVEL 9          /* debugging if msglevel>=DBGLEVEL */
 #define LOGLEVEL 3          /* logging if msglevel>=LOGLEVEL */
 
-extern FILE *msgfp;            /* output in command-line mode */
-extern int msglevel       ;    /* message level for verbose/debug */
-/* --- embed warnings in rendered expressions, [\xxx?] if \xxx unknown --- */
-extern int warninglevel;  /* warning level */
-extern int isblackonwhite; /*1=black on white,0=reverse*/
-extern int fgred;
-extern int fggreen;
-extern int fgblue;      /* fg r,g,b */
-extern int bgred;
-extern int bggreen;
-extern int bgblue;      /* bg r,g,b */
 /* --- supersampling shrink factors corresponding to displayed sizes --- */
 extern int shrinkfactors[];
-extern int shrinkfactor;   /* shrinkfactors[fontsize] */
-extern int patternnumcount0[99], patternnumcount1[99]; /*aalookup() counts*/
-extern int istransparent;/* true sets background transparent*/
-extern int aaalgorithm;  /* for lp, 1=aalowpass, 2 =aapnm */
+
+struct mimetex_ctx_struct {
+    FILE *msgfp;            /* output in command-line mode */
+    int msglevel       ;    /* message level for verbose/debug */
+    /* --- embed warnings in rendered expressions, [\xxx?] if \xxx unknown --- */
+    int warninglevel;  /* warning level */
+    int isblackonwhite; /*1=black on white,0=reverse*/
+    int fgred;
+    int fggreen;
+    int fgblue;      /* fg r,g,b */
+    int bgred;
+    int bggreen;
+    int bgblue;      /* bg r,g,b */
+    /* --- supersampling shrink factors corresponding to displayed sizes --- */
+    int shrinkfactor;   /* shrinkfactors[fontsize] */
+    int patternnumcount0[99];
+    int patternnumcount1[99]; /*aalookup() counts*/
+    int istransparent;/* true sets background transparent*/
+    int isplusblank;  /*interpret +'s in query as blanks?*/
+    int aaalgorithm;  /* for lp, 1=aalowpass, 2 =aapnm */
+    int recurlevel;     /* inc/decremented in rasterize() */
+    int scriptlevel;    /* inc/decremented in rastlimits() */
+    int isstring;       /*pixmap is ascii string, not raster*/
+    int isligature;     /* true if ligature found */
+    char *subexprptr;  /* ptr within expression to subexpr*/
+    int isdisplaystyle;     /* displaystyle mode (forced if 2) */
+    int ispreambledollars;  /* displaystyle mode set by $$...$$ */
+    int fontnum;        /* cal=1,scr=2,rm=3,it=4,bb=5,bf=6 */
+    int fontsize;  /* current size */
+    int displaysize;  /* use \displaystyle when fontsize>=*/
+    double unitlength;    /* #pixels per unit (may be <1.0) */
+    int isnocatspace;   /* >0 to not add space in rastcat()*/
+    int smashmargin;  /* minimum "smash" margin */
+    int mathsmashmargin; /* needed for \text{if $n-m$ even}*/
+    int issmashdelta;   /* true if smashmargin is a delta */
+    int isexplicitsmash;    /* true if \smash explicitly given */
+    int smashcheck;  /* check if terms safe to smash */
+    int isscripted;     /* is (lefthand) term text-scripted*/
+    int isdelimscript;      /* is \right delim text-scripted */
+    int issmashokay;    /*is leading char okay for smashing*/
+    int blanksignal;  /*rastsmash signal right-hand blank*/
+    int blanksymspace;      /* extra (or too much) space wanted*/
+    double gammacorrection; /* gamma correction */
+    int maxfollow;  /* aafollowline() maxturn parameter*/
+    int fgalias;
+    int fgonly;
+    int bgalias;
+    int bgonly;       /* aapnm() params */
+    int *workingparam;  /* working parameter */
+    subraster *workingbox; /*working subraster box*/
+    int isreplaceleft;      /* true to replace leftexpression */
+    subraster *leftexpression; /*rasterized so far*/
+    mathchardef *leftsymdef; /* mathchardef for preceding symbol*/
+    int fraccenterline; /* baseline for punct. after \frac */
+    int centerwt;
+    int minadjacent;
+    int maxadjacent;
+    int adjacentwt;
+    int weightnum;
+    int maxaaparams;
+    int cornerwt;
+    int ispatternnumcount;
+    /* --- for low-pass anti-aliasing --- */
+    fontfamily *fonttable;
+};
 
 /* ---
  * mathchardefs for symbols recognized by mimetex
  * ---------------------------------------------- */
-extern int tzdelta;
-
 extern mathchardef_table symtables[16];
 
-int delete_raster();
-int delete_subraster();
-int line_raster();
-int rastput();
-int rastsmashcheck();
-int rule_raster();
-raster *backspace_raster();
-raster *gftobitmap();
-raster *new_raster();
-raster *rastcpy();
-raster *rastrot();
-subraster *arrow_subraster();
-subraster *get_charsubraster();
-subraster *get_delim();
-subraster *new_subraster();
-subraster *rastack();
-subraster *rastcat();
-subraster *rastcompose();
-subraster *rastdispmath();
-subraster *rasterize();
-subraster *rastflags();
-subraster *rastlimits();
-subraster *rastscripts();
-subraster *subrastcpy();
-subraster *uparrow_subraster();
+/* mimetex.c */
+int mimetex_ctx_init(mimetex_ctx *mctx);
 
+/* raster.c */
+raster *new_raster(mimetex_ctx *mctx, int width, int height, int pixsz);
+int delete_raster(mimetex_ctx *mctx, raster *rp);
+raster *rastcpy(mimetex_ctx *mctx, raster *rp);
+raster  *rastrot(mimetex_ctx *mctx, raster *rp);
+raster  *rastref(mimetex_ctx *mctx, raster *rp, int axis);
+int rastput(mimetex_ctx *mctx, raster *target, raster *source,
+            int top, int left, int isopaque);
+subraster *rastcompose(mimetex_ctx *mctx, subraster *sp1, subraster *sp2, int offset2, int isalign, int isfree);
+subraster *rastcat(mimetex_ctx *mctx, subraster *sp1, subraster *sp2, int isfree);
+subraster *rastack(mimetex_ctx *mctx, subraster *sp1, subraster *sp2, int base, int space, int iscenter, int isfree);
+raster  *rastile(mimetex_ctx *mctx, subraster *tiles, int ntiles);
+int rastsmash(mimetex_ctx *mctx, subraster *sp1, subraster *sp2);
+int rastsmashcheck(mimetex_ctx *mctx, char *term);
+subraster *new_subraster(mimetex_ctx *mctx, int width, int height, int pixsz);
+int delete_subraster(mimetex_ctx *mctx, subraster *sp);
+subraster *subrastcpy(mimetex_ctx *mctx, subraster *sp);
 
 /* tex.c */
-char *texchar();
-char *texsubexpr();
-char *texsubexpr();
-char *texscripts();
-int isbrace();
+char *texchar(mimetex_ctx *mctx, char *expression, char *chartoken);
+char *texsubexpr(mimetex_ctx *mctx, char *expression, char *subexpr, int maxsubsz, char *left, char *right, int isescape, int isdelim);
+char *texleft(mimetex_ctx *mctx, char *expression, char *subexpr, int maxsubsz, char *ldelim, char *rdelim);
+char *texscripts(mimetex_ctx *mctx, char *expression, char *subscript, char *superscript, int which);
+int isbrace(mimetex_ctx *mctx, char *expression, char *braces, int isescape);
 char *strdetex(char *s, int mode);
-char *mimeprep(char *expression);
+char *mimeprep(mimetex_ctx *mctx, char *expression);
+char *strtexchr(char *string, char *texchr);
+char *preamble(mimetex_ctx *mctx, char *expression, int *size, char *subexpr);
 
 /* chardef.c */
-mathchardef *get_ligature();
-mathchardef *get_symdef();
+chardef *new_chardef(mimetex_ctx *mctx);
+int delete_chardef(mimetex_ctx *mctx, chardef *cp);
+mathchardef *get_ligature(mimetex_ctx *mctx, char *expression, int family);
+mathchardef *get_symdef(mimetex_ctx *mctx, char *symbol);
+subraster *make_delim(mimetex_ctx *mctx, char *symbol, int height);
+subraster *get_delim(mimetex_ctx *mctx, char *symbol, int height, int family);
+subraster *get_charsubraster(mimetex_ctx *mctx, mathchardef *symdef, int size);
 
 /* render.c */
-int type_raster();
-raster  *border_raster(raster *rp, int ntop, int nbot,
-                       int isline, int isfree);
+int type_raster(mimetex_ctx *mctx, raster *rp, FILE *fp);
+raster *border_raster(mimetex_ctx *mctx, raster *rp, int ntop, int nbot, int isline, int isfree);
+raster *gftobitmap(mimetex_ctx *mctx, raster *gf);
+subraster *arrow_subraster(mimetex_ctx *mctx, int width, int height, int pixsz, int drctn, int isBig);
+subraster *uparrow_subraster(mimetex_ctx *mctx, int width, int height, int pixsz, int drctn, int isBig);
+subraster *rastparen(mimetex_ctx *mctx, char **subexpr, int size, subraster *basesp);
+subraster *rastlimits(mimetex_ctx *mctx, char **expression, int size, subraster *basesp);
+subraster *rastdispmath(mimetex_ctx *mctx, char **expression, int size, subraster *sp);
+subraster *rastscripts(mimetex_ctx *mctx, char **expression, int size, subraster *basesp);
+int circle_raster(mimetex_ctx *mctx, raster *rp, int row0, int col0, int row1, int col1, int thickness, char *quads);
+int rule_raster(mimetex_ctx *mctx, raster *rp, int top, int left, int width, int height, int type);
+int line_raster(mimetex_ctx *mctx, raster *rp, int row0, int col0, int row1, int col1, int thickness);
+int circle_recurse(mimetex_ctx *mctx, raster *rp, int row0, int col0, int row1, int col1, int thickness, double theta0, double theta1);
+int line_recurse(mimetex_ctx *mctx, raster *rp, double row0, double col0, double row1, double col1, int thickness);
+raster  *backspace_raster(mimetex_ctx *mctx, raster *rp, int nback, int *pback, int minspace, int isfree);
+subraster *rasterize(mimetex_ctx *mctx, char *expression, int size);
 
 /* utils.c */
 char *dbltoa(double dblval, int npts);
@@ -404,14 +464,21 @@ char *calendar(int year, int month, int day);
 char *timestamp(int tzdelta, int ifmt);
 int tzadjust(int tzdelta, int *year, int *month, int *day, int *hour);
 int daynumber(int year, int month, int day);
-char *strwrap(char *s, int linelen, int tablen);
+char *strwrap(mimetex_ctx *mctx, char *s, int linelen, int tablen);
 char *strnlower(char *s, int n);
 int strreplace(char *string, char *from, char *to, int nreplace);
 char *strchange(int nfirst, char *from, char *to);
-char *strwstr(char *string, char *substr, char *white, int *sublen);
+char *strwstr(mimetex_ctx *mctx, char *string, char *substr, char *white, int *sublen);
 int isstrstr(char *string, char *snippets, int iscase);
 char x2c(char *what);
 int hex_bitmap(raster *rp, FILE *fp, int col1, int isstr);
+
+/* aa.c */
+int aalowpass(mimetex_ctx *mctx, raster *rp, intbyte *bytemap, int grayscale);
+int aapnm(mimetex_ctx *mctx, raster *rp, intbyte *bytemap, int grayscale);
+int aapnmlookup(mimetex_ctx *mctx, raster *rp, intbyte *bytemap, int grayscale);
+int aalowpasslookup(mimetex_ctx *mctx, raster *rp, intbyte *bytemap, int grayscale);
+int aacolormap(mimetex_ctx *mctx, intbyte *bytemap, int nbytes, intbyte *colors, intbyte *colormap);
 
 /* ------------------------------------------------------------
 miscellaneous macros
